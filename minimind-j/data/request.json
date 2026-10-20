@@ -1,0 +1,27 @@
+{
+  "input": "배송이 언제 오나요?",
+  "questions": [
+    {
+      "id": "route",
+      "type": "choice",
+      "question": "문의 분류?",
+      "choices": [
+        "배송 문의",
+        "환불 요청",
+        "계정 문의"
+      ]
+    },
+    {
+      "id": "urgency",
+      "type": "score",
+      "question": "긴급도? 일반0, 지연1, 환불2",
+      "min": 0,
+      "max": 2
+    },
+    {
+      "id": "refund",
+      "type": "noul",
+      "question": "환불 또는 취소 요청?"
+    }
+  ]
+}

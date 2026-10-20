@@ -1,0 +1,15 @@
+/models/
+/outputs/
+
+.env
+.env.*
+!.env.example
+!.env.sample
+
+__pycache__/
+*.py[cod]
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/

@@ -1,0 +1,37 @@
+{
+  "source_project": "MiniMind-V",
+  "local_head": "1862b633fc082a723e78dbead9777545f09d960c",
+  "date": "2026-10-20",
+  "files": [
+    {
+      "file": "model/model_minimind.py",
+      "source": "../minimind-v/model/model_minimind.py",
+      "sha256": "548f1203282dccb3be43227b11463f469b976afbab614df52828bdd246c3786f",
+      "unchanged": true
+    },
+    {
+      "file": "model/model_vlm.py",
+      "source": "../minimind-v/model/model_vlm.py",
+      "sha256": "02f175bd2ef75dbf4d5f22f5f9f09234922acca4ebe7340d0dfefa813343baf3",
+      "unchanged": true
+    },
+    {
+      "file": "model/tokenizer.json",
+      "source": "../minimind-v/model/tokenizer.json",
+      "sha256": "71f32c68cf63a15355a8fc171b7594b3d41870fe0ddb54fc6aefa55f73a4a668",
+      "unchanged": true
+    },
+    {
+      "file": "model/tokenizer_config.json",
+      "source": "../minimind-v/model/tokenizer_config.json",
+      "sha256": "d7cd6a60c9f191c4f9ffec69b2eb289ad2f960366724f328b681ae1e46e4c110",
+      "unchanged": true
+    },
+    {
+      "file": "LICENSE",
+      "source": "../minimind-v/LICENSE",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "unchanged": true
+    }
+  ]
+}

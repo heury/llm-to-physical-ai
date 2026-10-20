@@ -1,0 +1,183 @@
+{
+  "dataset": "HuggingFaceFW/fineweb-edu",
+  "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+  "subset": "sample/10BT",
+  "predicate": "score >= 3.5",
+  "threshold": 3.5,
+  "files": [
+    "sample/10BT/000_00000.parquet",
+    "sample/10BT/001_00000.parquet",
+    "sample/10BT/002_00000.parquet",
+    "sample/10BT/003_00000.parquet",
+    "sample/10BT/004_00000.parquet",
+    "sample/10BT/005_00000.parquet",
+    "sample/10BT/006_00000.parquet",
+    "sample/10BT/007_00000.parquet",
+    "sample/10BT/008_00000.parquet",
+    "sample/10BT/009_00000.parquet",
+    "sample/10BT/010_00000.parquet",
+    "sample/10BT/011_00000.parquet",
+    "sample/10BT/012_00000.parquet",
+    "sample/10BT/013_00000.parquet"
+  ],
+  "shards": [
+    {
+      "source": "sample/10BT/000_00000.parquet",
+      "output": "000_00000.parquet",
+      "scanned": 726000,
+      "kept": 96494,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.0625,
+      "sha256": "b4d7f4c85ba6acad65db04811fc430dc00b352cb90ef5ff10d0ea442f78ce0ab",
+      "bytes": 206975533
+    },
+    {
+      "source": "sample/10BT/001_00000.parquet",
+      "output": "001_00000.parquet",
+      "scanned": 729000,
+      "kept": 96570,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.34375,
+      "sha256": "05d1e619f252478951144646182dc2bad5caace8824561a1198b8b95ea272e9d",
+      "bytes": 208909737
+    },
+    {
+      "source": "sample/10BT/002_00000.parquet",
+      "output": "002_00000.parquet",
+      "scanned": 727000,
+      "kept": 97246,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.15625,
+      "sha256": "bf646ac0433f1dc1be40b27aaa3d825600dd72ea72ce69ec7312890d80d65fa6",
+      "bytes": 208031679
+    },
+    {
+      "source": "sample/10BT/003_00000.parquet",
+      "output": "003_00000.parquet",
+      "scanned": 734000,
+      "kept": 97983,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.09375,
+      "sha256": "79dea7f55949998b60b40c3285189330932faaeeb83a9e596bac2a70ded5950b",
+      "bytes": 208529255
+    },
+    {
+      "source": "sample/10BT/004_00000.parquet",
+      "output": "004_00000.parquet",
+      "scanned": 745000,
+      "kept": 99940,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.03125,
+      "sha256": "4957fca031e227f72651ff2061b962a7e76d4e184b8771eca5ccccc90d6a740f",
+      "bytes": 211921633
+    },
+    {
+      "source": "sample/10BT/005_00000.parquet",
+      "output": "005_00000.parquet",
+      "scanned": 738000,
+      "kept": 98726,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.34375,
+      "sha256": "905271e60658251555152c518d72a0a3a711bffc4663d7f713c330a201350682",
+      "bytes": 209618314
+    },
+    {
+      "source": "sample/10BT/006_00000.parquet",
+      "output": "006_00000.parquet",
+      "scanned": 732000,
+      "kept": 96607,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.09375,
+      "sha256": "6a0ef6eef809c00386c813134149200f5fd20cc5f84c178ed9fab6d257be0070",
+      "bytes": 207835395
+    },
+    {
+      "source": "sample/10BT/007_00000.parquet",
+      "output": "007_00000.parquet",
+      "scanned": 725000,
+      "kept": 96129,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.1875,
+      "sha256": "def88b2ee0eeb35e26412d00c2c9448ce02483bc7eb3896779c82f74b7020eb4",
+      "bytes": 208974113
+    },
+    {
+      "source": "sample/10BT/008_00000.parquet",
+      "output": "008_00000.parquet",
+      "scanned": 724000,
+      "kept": 96224,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.09375,
+      "sha256": "3c6ca5ee74634716434381e565cb532a4ac8c49d55002b1546fa6ee673090dbb",
+      "bytes": 207543715
+    },
+    {
+      "source": "sample/10BT/009_00000.parquet",
+      "output": "009_00000.parquet",
+      "scanned": 713000,
+      "kept": 95458,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.09375,
+      "sha256": "bfba1ff8242ae1f8aa7ab98edf4cb85038805003c538417d376d3bfc9bb0302b",
+      "bytes": 211379718
+    },
+    {
+      "source": "sample/10BT/010_00000.parquet",
+      "output": "010_00000.parquet",
+      "scanned": 730000,
+      "kept": 97493,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.1875,
+      "sha256": "32ff6d590ee31085a77e9d2a5611a6e8660c2b36a29abfbd19708f5ed2f5f4f3",
+      "bytes": 209298780
+    },
+    {
+      "source": "sample/10BT/011_00000.parquet",
+      "output": "011_00000.parquet",
+      "scanned": 735000,
+      "kept": 97956,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.25,
+      "sha256": "dc2df30b5f4b248523d75d2c261b17bea66e74222676c9dbf821c5d4e4937dd3",
+      "bytes": 208628458
+    },
+    {
+      "source": "sample/10BT/012_00000.parquet",
+      "output": "012_00000.parquet",
+      "scanned": 732000,
+      "kept": 97242,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.09375,
+      "sha256": "a76b59a864af4549c64362f8a2565afe60d9c2cd774440c9f1986cd1a7cc6ade",
+      "bytes": 207778966
+    },
+    {
+      "source": "sample/10BT/013_00000.parquet",
+      "output": "013_00000.parquet",
+      "scanned": 182101,
+      "kept": 24160,
+      "empty_texts": 0,
+      "min_score": 3.5,
+      "max_score": 5.0,
+      "sha256": "ea8b4711acfeded7a3ed690a3cc59cca359f54b697751b0839836bbbdb9c1fa7",
+      "bytes": 51126070
+    }
+  ],
+  "status": "complete",
+  "scanned": 9672101,
+  "kept": 1288228,
+  "empty_texts": 0
+}

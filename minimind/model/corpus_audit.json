@@ -1,0 +1,9 @@
+{
+  "dataset_rows": 1284879,
+  "nonempty_documents": 1284878,
+  "skipped_empty_rows": 1,
+  "characters": 3576061638,
+  "empty_row_indices": [
+    1049
+  ]
+}

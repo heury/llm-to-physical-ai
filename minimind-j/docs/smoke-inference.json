@@ -1,0 +1,46 @@
+{
+  "answers": {
+    "route": "배송 문의",
+    "urgency": 0,
+    "refund": false
+  },
+  "details": {
+    "route": {
+      "type": "choice",
+      "values": [
+        "배송 문의",
+        "환불 요청",
+        "계정 문의"
+      ],
+      "probabilities": [
+        1.0,
+        1.9662010686261056e-08,
+        2.552550171230905e-09
+      ]
+    },
+    "urgency": {
+      "type": "score",
+      "values": [
+        0,
+        1,
+        2
+      ],
+      "probabilities": [
+        1.0,
+        7.017726399993762e-10,
+        2.182904879077796e-08
+      ]
+    },
+    "refund": {
+      "type": "noul",
+      "values": [
+        false,
+        true
+      ],
+      "probabilities": [
+        1.0,
+        1.5082635584917625e-08
+      ]
+    }
+  }
+}

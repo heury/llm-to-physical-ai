@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+data/
+out/
+model/siglip2-base-p32-256-ve

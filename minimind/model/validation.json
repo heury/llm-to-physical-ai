@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "documents": 1288228,
+  "dataset_rows": 1288228,
+  "skipped_empty_rows": 0,
+  "vocab_size": 6400,
+  "round_trip_samples": 180,
+  "modern_hangul_syllables_checked": 11172,
+  "example_token_counts": [
+    76,
+    15,
+    45,
+    49,
+    65
+  ],
+  "sha256": {
+    "tokenizer.json": "312258c4f87cd509a830f418a8e430a4cf203d2c17827e324c8baf5946755417",
+    "tokenizer_config.json": "d7cd6a60c9f191c4f9ffec69b2eb289ad2f960366724f328b681ae1e46e4c110",
+    "vocab.json": "548e8b78c7b2153ac65908d8d93370d2540afb4aa0e1685d950cd61a595f5db8",
+    "merges.txt": "280f5ec375449259260a9ffeedd08335ba6c5310507d0250aaf825bde81b2afc",
+    "training_info.json": "5937fd847aaaa43ebe620da7d07570b5474c086dab95b965fafc0fc21644cb92"
+  }
+}

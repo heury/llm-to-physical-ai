@@ -1,0 +1,16 @@
+MiniMind-A: educational Vision-Language-Action implementation.
+
+model/model_minimind.py and model/model_vlm.py are unmodified local copies of
+MiniMind-V (https://github.com/jingyaogong/minimind-v), local HEAD
+1862b633fc082a723e78dbead9777545f09d960c at the time of copying.
+model/tokenizer.json and model/tokenizer_config.json are copied from the same
+local MiniMind-V project. Its Apache-2.0 LICENSE is included.
+The native files may contain pre-existing local changes relative to upstream HEAD;
+source file hashes are recorded in docs/provenance.json.
+
+SmolVLA (Hugging Face, 2025; Apache-2.0) is the conceptual reference for conditional
+flow matching and chunked actions:
+https://github.com/huggingface/lerobot/tree/main/src/lerobot/policies/smolvla
+This project independently implements a smaller final-hidden-state cross-attention
+expert rather than copying LeRobot's expert or reproducing SmolVLA checkpoints.
+See README.md for architectural differences and scope.

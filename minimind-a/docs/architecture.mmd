@@ -1,0 +1,12 @@
+flowchart LR
+  I["RGB image"] --> V["MiniMind-V SigLIP (frozen)"]
+  V --> P["MiniMind-V projector"]
+  T["Instruction tokens"] --> L["MiniMind-V language Transformer"]
+  P --> L
+  L --> M["Context memory: computed once"]
+  S["Robot state"] --> M
+  M --> E["Small action Transformer: cross attention"]
+  N["Noisy action chunk + time + position"] --> E
+  E --> F["Velocity field"]
+  F --> O["Euler integration"]
+  O --> A["Continuous action chunk"]

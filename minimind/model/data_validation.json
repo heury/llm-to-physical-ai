@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "documents": 1288228,
+  "source_rows": 9672101,
+  "shards": 14,
+  "sha256_verified": true,
+  "all_scores_at_least": 3.5,
+  "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
+}

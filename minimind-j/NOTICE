@@ -1,0 +1,24 @@
+MiniMind-J educational decision model.
+
+model/model_minimind.py is derived from jingyaogong/minimind,
+https://github.com/jingyaogong/minimind, Apache License 2.0.
+Local source revision: f659b55761b754d306bd140573493a6543cafd7f.
+Local source file SHA256 (includes local edits at extraction time):
+548f1203282dccb3be43227b11463f469b976afbab614df52828bdd246c3786f.
+Modifications: retained configuration and transformer backbone; removed LM
+generation wrapper and unused imports; added 4D block causal masks and local
+batched RoPE positions for independent parallel question branches.
+
+Design references (not vendored and not runtime dependencies):
+https://github.com/unslothai/unsloth/blob/main/unsloth/models/clef.py
+https://github.com/unslothai/unsloth/blob/main/unsloth/models/decision.py
+https://github.com/unslothai/unsloth/blob/main/unsloth/models/decision_from_lm.py
+https://github.com/unslothai/unsloth/blob/main/unsloth/models/decision_datasets.py
+Retrieved 2026-10-20. MiniMind-J v2 reuses the native LM projection to read
+parallel typed answers; it does not reproduce CLEF or claim checkpoint
+compatibility with CLEF or MiniMind-J v1's separate scalar decision head.
+
+tests/fixtures/typed_decision.json contains an attributed sample from
+LocalLLaMA/typed-decisions (Apache-2.0), revision
+d9eda7f31ba227333213a1787f2c78fdaa4090c8.
+https://huggingface.co/datasets/LocalLLaMA/typed-decisions

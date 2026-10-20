@@ -1,0 +1,15 @@
+{
+  "documents": 1288228,
+  "characters": 6448359165,
+  "requested_vocab_size": 6400,
+  "vocab_size": 6400,
+  "elapsed_seconds": 181.25,
+  "dataset": "HuggingFaceFW/fineweb-edu",
+  "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+  "subset": "sample/10BT",
+  "score_threshold": 3.5,
+  "dataset_rows": 1288228,
+  "skipped_empty_rows": 0,
+  "source_rows": 9672101,
+  "max_lines": 0
+}

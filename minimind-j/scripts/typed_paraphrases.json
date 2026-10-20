@@ -1,0 +1,22 @@
+{
+  "What should the observability system do with this trace?": "Which action should the observability system take for this trace?",
+  "This trace requires human review.": "Does this trace need to be reviewed by a human?",
+  "How did this agent run turn out?": "What was the outcome of this agent run?",
+  "How risky was the agent's behaviour in this trace?": "What level of risk did the agent's behaviour in this trace pose?",
+  "How quickly does this trace need attention?": "How urgently does this trace require attention?",
+  "What should the assistant do next with this conversation?": "Which action should the assistant take next in this conversation?",
+  "What is this customer conversation primarily about?": "What is the main subject of this customer conversation?",
+  "How likely is this customer to stop doing business with us because of this interaction?": "What is the likelihood that this interaction will cause the customer to stop doing business with us?",
+  "This conversation requires a human agent rather than automated handling.": "Does this conversation need a human agent instead of automated handling?",
+  "How time-sensitive is this conversation?": "How urgently does this conversation need to be handled?",
+  "How material is any discrepancy between the invoice, the order and the delivery?": "How significant are any discrepancies among the invoice, the order and the delivery?",
+  "How should this vendor invoice be dispositioned?": "What disposition should be assigned to this vendor invoice?",
+  "This invoice appears to duplicate an invoice already submitted.": "Does this invoice appear to be a duplicate of one already submitted?",
+  "The invoice reconciles with the purchase order and the recorded delivery.": "Does the invoice reconcile with the purchase order and the recorded delivery?",
+  "How time-sensitive is processing this invoice?": "How urgently must this invoice be processed?",
+  "The evidence indicates a credential or account has been compromised.": "Does the evidence indicate that a credential or account has been compromised?",
+  "How should this security alert be dispositioned?": "What disposition should be assigned to this security alert?",
+  "How severe is the potential impact if this alert is real?": "If this alert is real, how severe could its impact be?",
+  "This alert reflects genuinely malicious or unauthorised activity.": "Does this alert reflect genuinely malicious or unauthorised activity?",
+  "How quickly must a responder act on this alert?": "How urgently must a responder take action on this alert?"
+}

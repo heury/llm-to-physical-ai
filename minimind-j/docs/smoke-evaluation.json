@@ -1,0 +1,156 @@
+{
+  "by_type": {
+    "choice": {
+      "correct": 0,
+      "questions": 3
+    },
+    "score": {
+      "correct": 2,
+      "questions": 3
+    },
+    "noul": {
+      "correct": 2,
+      "questions": 3
+    }
+  },
+  "predictions": [
+    {
+      "answers": {
+        "route": "계정 문의",
+        "urgency": 0,
+        "refund": false
+      },
+      "details": {
+        "route": {
+          "type": "choice",
+          "values": [
+            "계정 문의",
+            "환불 요청",
+            "배송 문의"
+          ],
+          "probabilities": [
+            0.9706135392189026,
+            0.027434872463345528,
+            0.001951572485268116
+          ]
+        },
+        "urgency": {
+          "type": "score",
+          "values": [
+            0,
+            1,
+            2
+          ],
+          "probabilities": [
+            0.9999786615371704,
+            1.801863436412532e-05,
+            3.2991376883728663e-06
+          ]
+        },
+        "refund": {
+          "type": "noul",
+          "values": [
+            false,
+            true
+          ],
+          "probabilities": [
+            0.9631388187408447,
+            0.03686121478676796
+          ]
+        }
+      }
+    },
+    {
+      "answers": {
+        "route": "계정 문의",
+        "urgency": 2,
+        "refund": false
+      },
+      "details": {
+        "route": {
+          "type": "choice",
+          "values": [
+            "환불 요청",
+            "배송 문의",
+            "계정 문의"
+          ],
+          "probabilities": [
+            3.69759959539806e-07,
+            9.154796920540775e-09,
+            0.9999996423721313
+          ]
+        },
+        "urgency": {
+          "type": "score",
+          "values": [
+            0,
+            1,
+            2
+          ],
+          "probabilities": [
+            4.340621308074333e-05,
+            8.241169098255341e-07,
+            0.9999557733535767
+          ]
+        },
+        "refund": {
+          "type": "noul",
+          "values": [
+            false,
+            true
+          ],
+          "probabilities": [
+            0.9561919569969177,
+            0.04380806162953377
+          ]
+        }
+      }
+    },
+    {
+      "answers": {
+        "route": "환불 요청",
+        "urgency": 2,
+        "refund": false
+      },
+      "details": {
+        "route": {
+          "type": "choice",
+          "values": [
+            "배송 문의",
+            "계정 문의",
+            "환불 요청"
+          ],
+          "probabilities": [
+            0.05112512409687042,
+            3.126771844108589e-06,
+            0.9488717317581177
+          ]
+        },
+        "urgency": {
+          "type": "score",
+          "values": [
+            0,
+            1,
+            2
+          ],
+          "probabilities": [
+            0.022562311962246895,
+            1.183360268441902e-06,
+            0.9774364829063416
+          ]
+        },
+        "refund": {
+          "type": "noul",
+          "values": [
+            false,
+            true
+          ],
+          "probabilities": [
+            0.9957618117332458,
+            0.0042381505481898785
+          ]
+        }
+      }
+    }
+  ]
+}
