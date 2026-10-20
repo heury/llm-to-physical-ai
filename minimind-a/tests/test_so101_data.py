@@ -66,3 +66,18 @@ def test_cleanup_guard_rejects_incomplete_training():
     ]:
         with pytest.raises(ValueError):
             validate_completion(success, settings, {**evaluation, **bad}, hashes)
+
+
+def test_download_receipt_cannot_authorize_deletion_of_another_run():
+    import pytest
+    from scripts.runpod_so101.watch import validate_download_receipt
+
+    receipt = dict(pod_id="old", remote_root="/shared/old", episodes=10,
+                   local_videos_verified=True, archive_sha256="abc", verified_files=93)
+    validate_download_receipt(receipt, "old", "/shared/old")
+    for pod, root in [("new", "/shared/old"), ("old", "/shared/new"), ("new", "/shared/new")]:
+        with pytest.raises(ValueError):
+            validate_download_receipt(receipt, pod, root)
+    for flag, value in [("episodes", 9), ("local_videos_verified", False), ("archive_sha256", ""), ("verified_files", 0)]:
+        with pytest.raises(ValueError):
+            validate_download_receipt({**receipt, flag: value}, "old", "/shared/old")

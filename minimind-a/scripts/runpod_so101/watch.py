@@ -11,6 +11,19 @@ import time
 import urllib.request
 
 
+def validate_download_receipt(receipt, pod_id, remote_root):
+    """A completed older run must never authorize deletion of a new Pod."""
+    if receipt.get("pod_id") != pod_id or receipt.get("remote_root") != remote_root:
+        raise ValueError("Download receipt belongs to a different run")
+    if (
+        receipt.get("episodes") != 10
+        or not receipt.get("local_videos_verified")
+        or not receipt.get("archive_sha256")
+        or not receipt.get("verified_files", 0)
+    ):
+        raise ValueError("Download receipt is incomplete")
+
+
 def validate_completion(success, settings, evaluation, hashes):
     if not success.get("shared_volume_verified"):
         raise ValueError("Shared-volume completion not verified")

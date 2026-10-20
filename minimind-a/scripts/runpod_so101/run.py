@@ -32,7 +32,8 @@ from scripts.runpod_so101.data_utils import (
 
 ROOT = Path(os.environ.get("SO101_RUN_ROOT", "/shared-volume/minimind-a-so101-20261020"))
 BASE = Path("/shared-volume/minimind-v-sharegpt4v-20261020")
-REVISION = "9b1c5189e3858e9254fc5e48259a035d22da497a"
+DATASET = os.environ.get("SO101_DATASET_ID", "caspar/so101_pickplace_sim")
+REVISION = os.environ.get("SO101_DATASET_REVISION", "9b1c5189e3858e9254fc5e48259a035d22da497a")
 CAMERA = "observation.images.top"
 EPOCHS, BATCH, HORIZON = 100, 128, 16
 
@@ -92,9 +93,12 @@ def main():
     episode_ids = np.asarray(table["episode_index"], dtype=np.int64)
     indices = np.asarray(table["index"], dtype=np.int64)
     assert np.array_equal(indices, np.arange(len(indices)))
-    assert len(indices) == info["total_frames"] == 7396
-    assert len(episodes) == info["total_episodes"] == 43
-    assert state.shape == actions.shape == (7396, 6)
+    total_frames = int(info["total_frames"])
+    total_episodes = int(info["total_episodes"])
+    assert info["codebase_version"] == "v3.0" and info["fps"] == 20
+    assert len(indices) == total_frames
+    assert len(episodes) == total_episodes
+    assert state.shape == actions.shape == (total_frames, 6)
     assert np.isfinite(state).all() and np.isfinite(actions).all()
     train_episodes, val_episodes = split_episodes(episode_ids, 5, 42)
     train_ids = np.flatnonzero(np.isin(episode_ids, train_episodes))
@@ -125,10 +129,10 @@ def main():
         video_indices[rows] = np.rint(times * info["fps"]).astype(np.int64)
     assert len(np.unique(video_indices)) == len(indices) and video_indices.min() == 0
     manifest = dict(
-        dataset="caspar/so101_pickplace_sim",
+        dataset=DATASET,
         revision=REVISION,
-        total_episodes=43,
-        total_frames=7396,
+        total_episodes=total_episodes,
+        total_frames=total_frames,
         train_episodes=train_episodes,
         validation_episodes=val_episodes,
         train_frames=len(train_ids),
@@ -213,7 +217,7 @@ def main():
             cached["revision"] == REVISION and cached["frozen_sha256"] == frozen_before
         )
         hidden = cached["hidden"]
-        assert hidden.shape == (7396, length, 768)
+        assert hidden.shape == (total_frames, length, 768)
     else:
         hidden = torch.empty(len(ids), length, 768, dtype=torch.bfloat16)
         wanted = {int(v): int(i) for i, v in enumerate(video_indices)}
@@ -233,18 +237,18 @@ def main():
             assert torch.isfinite(features).all()
             hidden[rows] = features.cpu().to(torch.bfloat16)
             seen.update(frame_rows)
-            if len(seen) % 512 == 0 or len(seen) == 7396:
+            if len(seen) % 512 == 0 or len(seen) == total_frames:
                 save(
                     "progress.json",
                     dict(
                         phase="context_cache",
                         frames=len(seen),
-                        total_frames=7396,
+                        total_frames=total_frames,
                         elapsed_seconds=time.time() - started,
                         time=time.time(),
                     ),
                 )
-                print("CACHED", len(seen), "/7396", flush=True)
+                print("CACHED", len(seen), "/", total_frames, flush=True)
             frames.clear()
             frame_rows.clear()
 
@@ -265,7 +269,7 @@ def main():
                     encode()
             if frames:
                 encode()
-        assert len(seen) == 7396, (len(seen), sorted(set(range(7396)) - seen)[:20])
+        assert len(seen) == total_frames, (len(seen), sorted(set(range(total_frames)) - seen)[:20])
         torch.save(
             dict(revision=REVISION, frozen_sha256=frozen_before, hidden=hidden),
             cache_file,
@@ -583,7 +587,7 @@ def main():
     files += [
         p
         for p in ROOT.glob("*.json")
-        if p.name not in ["SHA256.json", "progress.json", "phase.json"]
+        if p.name not in ["SHA256.json", "progress.json", "phase.json", "pipeline_phase.json", "pipeline_error.json"]
     ]
     files += list(ROOT.glob("*.npz"))
     files += [ROOT / "requirements-resolved.txt"]
