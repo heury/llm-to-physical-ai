@@ -3,10 +3,15 @@ import json
 
 import pytest
 import torch
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
+from transformers import PreTrainedTokenizerFast
 
 from dataset import ByteTokenizer, DecisionCollator, DecisionDataset, validate_row
 from model.decision import DecisionModel, load_checkpoint, save_checkpoint
 from model.model_minimind import MiniMindConfig
+from train import evaluate
 
 
 def rows():
@@ -191,10 +196,6 @@ def test_checkpoint_v1_rejected_clearly(tmp_path):
 
 
 def test_hf_tokenizer_roundtrip(setup, tmp_path):
-    from tokenizers import Tokenizer
-    from tokenizers.models import WordLevel
-    from tokenizers.pre_tokenizers import Whitespace
-    from transformers import PreTrainedTokenizerFast
     model, _, _ = setup
     vocab = {"[UNK]": 0, "[PAD]": 1, "[BOS]": 2, "[EOS]": 3,
              **{chr(65 + i): 4 + i for i in range(26)}}
@@ -217,8 +218,8 @@ def test_one_question_matches_ordinary_causal_lm(setup):
     model, collate, _ = setup
     model.eval()
     batch = collate(rows()[1:])
-    expected, _, _ = model.backbone(batch["input_ids"], attention_mask=torch.ones_like(batch["input_ids"]))
-    packed, _, _ = model.backbone(batch["input_ids"], attention_mask=batch["attention_mask"], position_ids=batch["position_ids"])
+    expected = model.backbone(batch["input_ids"])
+    packed = model.backbone(batch["input_ids"], attention_mask=batch["attention_mask"], position_ids=batch["position_ids"])
     torch.testing.assert_close(packed, expected, atol=1e-6, rtol=1e-5)
     full_vocab = model.lm_head(expected[:, -1])
     torch.testing.assert_close(model(**batch)["logits"], full_vocab.gather(1, batch["answer_token_ids"]), atol=1e-5, rtol=1e-5)
@@ -256,3 +257,44 @@ def test_missing_labels_and_too_many_options():
     row["questions"][0]["choices"] = [str(i) for i in range(27)]
     with pytest.raises(ValueError, match="26"):
         validate_row(row, require_label=False)
+
+
+def test_custom_rope_settings_survive_checkpoint(setup, tmp_path):
+    model, collate, tokenizer = setup
+    config = model.config.to_dict()
+    scaling = dict(type="yarn", factor=3, original_max_position_embeddings=32,
+                   beta_fast=8, beta_slow=1, attention_factor=1.2)
+    config.update(inference_rope_scaling=True, rope_scaling=scaling)
+    model = DecisionModel(MiniMindConfig(**config)).eval()
+    assert model.config.rope_scaling == scaling
+    batch = collate(rows())
+    expected = model(**batch)["logits"]
+    save_checkpoint(tmp_path, model, tokenizer, 512)
+    restored, _, _ = load_checkpoint(tmp_path)
+    assert restored.config.rope_scaling == scaling
+    torch.testing.assert_close(restored(**batch)["logits"], expected, atol=0, rtol=0)
+
+
+def test_evaluation_skips_unlabelled_batches(setup):
+    model, collate, _ = setup
+    labelled = rows()
+    unlabelled = copy.deepcopy(labelled)
+    for row in unlabelled:
+        for question in row["questions"]:
+            del question["answer"]
+    expected = evaluate(model, [collate(labelled)], "cpu")
+    actual = evaluate(model, [collate(unlabelled), collate(labelled)], "cpu")
+    assert actual == expected
+    with pytest.raises(ValueError, match="labelled"):
+        evaluate(model, [collate(unlabelled)], "cpu")
+
+
+@pytest.mark.parametrize("change", [
+    {"head_dim": 0}, {"head_dim": -2}, {"num_attention_heads": 0},
+    {"max_position_embeddings": 0}, {"intermediate_size": 0},
+])
+def test_invalid_dimensions_fail_clearly(setup, change):
+    config = setup[0].config.to_dict()
+    config.update(change)
+    with pytest.raises(ValueError):
+        DecisionModel(MiniMindConfig(**config))

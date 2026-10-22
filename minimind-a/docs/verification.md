@@ -1,4 +1,36 @@
-# 앞쪽 절반 레이어 구현 검증
+# 검증 기록
+
+## 2026-10-22: 교육용 코드 정리
+
+Linux CPU, PyTorch 2.10.0+cu128 / Transformers 5.12.1 / pytest 9.1.1.
+기존 `/home/mind4u/dev/reasoning-from-scratch/.venv/bin/python`의 설치 패키지를
+읽어 사용했으며 해당 환경은 변경하지 않았습니다.
+
+- 정리 전 기존 테스트: 38개 통과.
+- 세 회귀 테스트가 기존 코드에서 실패함을 확인한 뒤 수정:
+  - 숫자형 action mask를 attention에서는 bool로 읽고 loss 분모에서는 원래 값으로 합산하던 불일치.
+  - 패딩 target의 NaN/Inf가 유한한 loss 뒤에서도 gradient를 오염시키던 문제.
+  - dropout > 0일 때 이미지 토큰에도 dropout을 적용하여 원본 VLM과 달라지던 문제.
+- `flow_loss`, `integrate_actions`, `project_context`를 기본 모델과 RunPod 학습에서 공통 사용.
+- 단일 이미지 prefix 삽입을 tensor 결합으로 단순화. 지시문 토큰화·패딩과 체크포인트 키 검증의 중복 제거.
+- loss의 제곱 오차를 FP32로 계산. FP16 입력으로 400²의 오차가 유한하게 계산되는지 검사.
+- 최종 `python -m pytest -q`: **47개 통과**.
+  캐시 경로와 전체 경로의 loss·gradient 일치, Euler의 알려진 끝점·수렴,
+  입력 노이즈 보존, 오류 발생 시 train/eval 복원, 학습·검증·저장·복원·추론 CLI 포함.
+- Ruff F/E9 검사 및 수정 파일의 format 검사 통과. Python 23개 파일 구문 검사 통과.
+- `docs/provenance.json`에 기록된 MiniMind-V 원본 파일·tokenizer·LICENSE hash 일치.
+
+정리 전 Git HEAD의 모델 코드로 작은 실제 HF SigLIP fixture를 사용하는 체크포인트를
+생성하고 정리 후 코드로 읽었습니다. 모든 가중치 key와 값이 정확히 일치했습니다.
+같은 입력·noise/time에서 loss 차이는 0이었고, 10-step 행동 출력의 최대 절대 차이는
+CPU FP32에서 `1.19e-7`, CPU BF16 autocast에서 `0`이었습니다.
+체크포인트 형식은 기존 `format_version=2`입니다.
+
+이번 검증은 작은 무작위 SigLIP을 사용한 로컬 검증입니다.
+사전학습 모델의 정책 성능 평가, CUDA 학습, RunPod 실행, MuJoCo rollout은 수행하지 않았습니다.
+RunPod 스크립트는 정적 검사와 공통 모델 경로의 CPU 검사로 확인했습니다.
+
+## 앞쪽 절반 레이어 구현 검증
 
 2026-10-20: `python -m pytest -q` — 37개 통과.
 

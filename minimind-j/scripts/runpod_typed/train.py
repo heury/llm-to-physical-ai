@@ -1,14 +1,11 @@
 """Pinned Typed Decisions -> native parallel MiniMind-J; GPU training and evaluation."""
 import argparse
 import collections
-import contextlib
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import random
-import shutil
 import subprocess
 import sys
 import time
@@ -22,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from dataset import DecisionCollator, answer_values, validate_row
 from model.decision import DecisionModel, load_checkpoint, save_checkpoint
 from model.model_minimind import MiniMindConfig
+from metrics import metric_summary
 
 DATASET = 'LocalLLaMA/typed-decisions'
 REVISION = 'd9eda7f31ba227333213a1787f2c78fdaa4090c8'
@@ -83,6 +81,8 @@ def convert_record(raw):
 
 
 def split_training(rows, fraction, seed):
+    if not 0 < fraction < 1:
+        raise ValueError('Validation fraction must be between 0 and 1')
     rng = random.Random(seed)
     groups = collections.defaultdict(list)
     for row in rows:
@@ -112,32 +112,6 @@ def normalize_question_gradients(parameters, question_count):
     for parameter in parameters:
         if parameter.grad is not None:
             parameter.grad.div_(question_count)
-
-
-def metric_summary(items):
-    def summary(entries):
-        hits, tie_hits, kls, briers, confs = [], [], [], [], []
-        for item in entries:
-            p, g = item['p'], item['g']
-            pred = max(range(len(p)), key=lambda i: p[i])
-            gold = max(range(len(g)), key=lambda i: g[i])
-            hits.append(int(pred == gold))
-            tie_hits.append(int(abs(g[pred] - max(g)) < 1e-7))
-            kls.append(sum(v * math.log(v / max(p[i], 1e-9)) for i, v in enumerate(g) if v > 0))
-            briers.append(sum((a-b)**2 for a,b in zip(p,g)))
-            confs.append(max(p))
-        n = len(entries)
-        ece = 0.0
-        for b in range(10):
-            indices = [i for i,c in enumerate(confs) if min(int(c*10),9)==b]
-            if indices:
-                ece += len(indices)/n * abs(sum(hits[i] for i in indices)/len(indices)-sum(confs[i] for i in indices)/len(indices))
-        return {'decisions': n, 'accuracy': sum(hits)/n, 'tie_aware_accuracy': sum(tie_hits)/n,
-                'kl_from_gold': sum(kls)/n, 'brier': sum(briers)/n, 'ece': ece}
-    result = summary(items)
-    for field in ('type', 'workflow'):
-        result['by_'+field] = {key: summary([item for item in items if item[field]==key]) for key in sorted({item[field] for item in items})}
-    return result
 
 
 class SoftCollator:
@@ -223,6 +197,8 @@ def main():
     parser.add_argument('--lr', type=float, default=2e-5)
     parser.add_argument('--max-length', type=int, default=4096)
     args = parser.parse_args()
+    if min(args.epochs, args.patience, args.batch_size, args.accumulation) < 1 or args.lr <= 0:
+        parser.error('epochs, patience, batch-size, accumulation and lr must be positive')
     root, base = Path(args.root), Path(args.base_root)
     root.mkdir(parents=True, exist_ok=True)
     if (root/'SUCCESS').exists(): raise RuntimeError('This output already completed')
@@ -234,6 +210,7 @@ def main():
     write_json(root/'hardware.json', {'gpu':props.name,'memory_bytes':props.total_memory,
                'torch':torch.__version__,'cuda':torch.version.cuda,'device_capability':torch.cuda.get_device_capability(0)})
     # Public pinned parquet downloads: only `all` avoids counting workflow subsets twice.
+    # Optional cloud-training dependency; conversion helpers also run without PyArrow.
     import pyarrow.parquet as pq
     raw_dir = root/'data/raw'; raw_dir.mkdir(parents=True,exist_ok=True)
     raw = {}

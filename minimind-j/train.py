@@ -17,13 +17,17 @@ def evaluate(model, loader, device):
     total_loss, correct, count = 0.0, 0, 0
     with torch.no_grad():
         for batch in loader:
-            batch = {key: value.to(device) if value is not None else None for key, value in batch.items()}
+            batch = {key: value.to(device) for key, value in batch.items()}
             output = model(**batch)
             valid = batch["labels"] != -100
             size = int(valid.sum())
+            if size == 0:
+                continue
             total_loss += output["loss"].item() * size
             correct += ((output["logits"].argmax(-1) == batch["labels"]) & valid).sum().item()
             count += size
+    if count == 0:
+        raise ValueError("Evaluation requires at least one labelled question")
     return {"loss": total_loss / count, "accuracy": correct / count, "questions": count}
 
 
@@ -86,7 +90,7 @@ def main():
         if args.freeze_backbone:
             model.backbone.eval()
         for batch in loader:
-            batch = {key: value.to(args.device) if value is not None else None for key, value in batch.items()}
+            batch = {key: value.to(args.device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
             loss = model(**batch)["loss"]
             if not torch.isfinite(loss):

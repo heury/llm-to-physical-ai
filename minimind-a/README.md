@@ -11,6 +11,33 @@ VLM의 **앞쪽 절반 레이어**를 거친 hidden states에 표준 cross-atten
 **시각 인코더는 MiniMind-V에서 사용하는 SigLIP만 사용합니다.** 별도 Conv2d 인코더와
 byte tokenizer는 제거했습니다. 지시문도 MiniMind-V의 6400-token tokenizer를 사용합니다.
 
+## 수업에서 읽는 순서
+
+먼저 [model/model_vla.py](model/model_vla.py)의 아래 함수들을 읽으세요.
+`B`는 배치 크기, `H`는 미래 행동 개수, `A`는 행동 하나의 차원입니다.
+
+| 순서 | 함수 | 역할 |
+|---|---|---|
+| 1 | `flow_inputs` | 노이즈와 정답을 보간하고 목표 속도 `a-ε` 계산 |
+| 2 | `velocity` | 현재 청크·생성 시간·문맥에서 변화율 `[B,H,A]` 예측 |
+| 3 | `flow_loss` | 임의 시간 하나에서 예측한 속도와 목표 속도의 MSE 계산 |
+| 4 | `integrate_actions` | 속도를 반복 예측하며 Euler 적분으로 행동 생성 |
+| 5 | `encode_context` | 이미지·지시문을 VLM으로 처리하고 상태를 결합 |
+| 6 | `forward` / `sample_actions` | 각각 학습과 추론의 전체 흐름 연결 |
+
+```text
+학습: forward → encode_context → flow_loss → velocity → loss
+추론: sample_actions → encode_context → 노이즈 생성 → integrate_actions
+                                                     └ velocity 반복 → 행동 청크
+```
+
+그다음 `dataset/vla_dataset.py`에서 입력 shape와 패딩을,
+`train_vla.py`에서 역전파를, `eval_vla.py`에서 저장된 모델의 추론을 확인합니다.
+체크포인트 입출력은 `model_vla.py` 뒤쪽에 있습니다.
+`model_minimind.py`와 `model_vlm.py`는 출처를 보존한 MiniMind-V 기반 코드입니다.
+`scripts/runpod_so101/`은 고정 VLM 캐시·클라우드 학습·시뮬레이터 실행을 위한 확장 예제입니다.
+기본 학습·추론을 이해한 뒤 읽으면 됩니다.
+
 ## SigLIP 준비
 
 MiniMind-V의 `google/siglip2-base-patch32-256` 가중치와 processor를 담은 로컬 폴더가 필요합니다.
@@ -129,8 +156,41 @@ loss = 유효 행동 원소의 MSE(vθ(x_t, t, 이미지·지시·상태), a - �
 
 추론은 `x_0=ε`에서 시작해 `x ← x + vθ(x,t)/steps`를 반복합니다.
 시간 convention은 **0=노이즈, 1=데이터**입니다.
+
+**생성 시간 `t`와 로봇 실행 순서 `H`를 구분하세요.** `time`은 `[B]`이며,
+한 샘플의 청크 전체에 같은 생성 시간을 적용합니다. `velocity`는 로봇의 물리적
+속도가 아니라 **생성 시간에 따른 행동 청크의 변화율**입니다.
+청크 안의 행동 순서는 `action_position`이 표현합니다.
+
+학습에서는 `t`를 샘플링해 한 번만 속도를 예측합니다. 정답 `a`와 노이즈 `ε`는
+보간 입력과 목표를 만드는 데 쓰이며, 속도 신경망에는 `x_t`, `t`, 문맥만 전달합니다.
+개별 학습 쌍의 목표 속도는 일정하지만, 모델이 배우는 속도장은 위치·시간·문맥에 따라
+달라집니다. 따라서 생성 경로가 반드시 직선인 것은 아닙니다.
+
+추론에서는 정답 없이 아래 반복문으로 **전체 청크를 동시에** 갱신합니다.
+실제 구현은 `integrate_actions`에 있으며, 기본 적분 횟수는 10입니다.
+
+```python
+actions = noise
+dt = 1.0 / steps
+for step in range(steps):
+    time = torch.full((actions.size(0),), step / steps, device=actions.device)
+    velocity = self.velocity(memory, valid, actions, time)
+    actions = actions + dt * velocity
+```
+
+`steps`는 수치 적분 횟수이고 `chunk_size`는 반환할 행동 개수입니다.
+10번 적분한다고 행동이 10개 생성되는 것은 아닙니다. Euler 적분에는 근사 오차가 있으며,
+flow loss의 감소가 로봇 작업 성공률을 직접 보장하지는 않습니다.
+
 텍스트 패딩은 VLM·cross-attention에서 제외하고, 행동 패딩은 expert key/value와 loss에서 제외합니다.
+손실은 유효한 행동 원소 수로 나누며, 제곱 오차는 FP32에서 계산합니다.
 추론은 항상 전체 `chunk_size`를 반환합니다.
+짧은 청크의 학습과 전체 청크의 추론은 행동 attention 범위가 다릅니다.
+첫 실습에는 toy 데이터처럼 패딩 없는 고정 길이 청크를 권장합니다.
+
+RunPod 학습도 `project_context`, `flow_loss`, `integrate_actions`를 재사용합니다.
+VLM 출력만 캐시하고, 학습하는 문맥 투영과 상태 투영은 매번 계산합니다.
 
 ## 데이터와 저장
 
@@ -162,7 +222,8 @@ optimizer/RNG 저장 및 학습 재개는 생략했습니다.
 ## 범위와 검증
 
 단일 카메라·단일 관측·고정 차원만 지원합니다. SmolVLA 체크포인트와 호환되지 않으며,
-비동기 실행, RTC, 로봇 SDK, 다중 GPU, MoE, online rollout은 생략했습니다.
+비동기 실행, RTC, 로봇 SDK, 다중 GPU, MoE는 생략했습니다.
+기본 예제는 오프라인 학습·추론이며, SO101 시뮬레이터 rollout은 별도 확장 예제입니다.
 
 CPU 테스트는 `python -m pytest -q`로 실행합니다. 테스트는 작은 **실제 Hugging Face SigLIP 모델**을 임시 폴더에 무작위 초기화하여 실행합니다.
 별도 vision encoder 구현을 테스트에 사용하지 않습니다. 기본 실행 경로는 기존 사전학습 SigLIP을 사용합니다.

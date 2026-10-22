@@ -5,6 +5,9 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch.nn import functional as F
+from transformers import AutoTokenizer
+
+from dataset import ByteTokenizer, answer_values, validate_row
 
 from .model_minimind import MiniMindConfig, MiniMindModel
 
@@ -18,7 +21,10 @@ class DecisionModel(nn.Module):
             raise ValueError("This educational model supports dense MiniMind only")
         if (config.hidden_size <= 0 or config.num_hidden_layers < 1
                 or config.num_attention_heads < 1 or config.num_key_value_heads < 1
-                or config.num_attention_heads % config.num_key_value_heads or config.head_dim % 2):
+                or config.num_attention_heads % config.num_key_value_heads
+                or config.head_dim < 2 or config.head_dim % 2
+                or config.vocab_size < 1 or config.intermediate_size < 1
+                or config.max_position_embeddings < 1):
             raise ValueError("Invalid MiniMind dimensions / GQA heads / RoPE head_dim")
         self.backbone = MiniMindModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
@@ -27,10 +33,8 @@ class DecisionModel(nn.Module):
 
     def forward(self, input_ids, attention_mask, position_ids, question_positions,
                 answer_token_ids, option_mask, labels=None):
-        if input_ids.shape[1] > self.config.max_position_embeddings:
-            raise ValueError("Sequence exceeds max_position_embeddings")
-        hidden, _, _ = self.backbone(input_ids=input_ids, attention_mask=attention_mask,
-                                     position_ids=position_ids, use_cache=False)
+        hidden = self.backbone(input_ids=input_ids, attention_mask=attention_mask,
+                               position_ids=position_ids)
         # Every question has one answer position; no autoregressive answer generation.
         pooled = hidden[question_positions[:, 0], question_positions[:, 1]]
         # Exactly the A-Z rows of the existing LM projection, avoiding a full vocab tensor.
@@ -44,7 +48,6 @@ class DecisionModel(nn.Module):
 
     @staticmethod
     def decode(rows, probabilities):
-        from dataset import answer_values, validate_row
         # The tensor uses record order, then question order, as the collator does.
         rows = [validate_row(row, require_label=False) for row in rows]
         if len(probabilities) != sum(len(row["questions"]) for row in rows):
@@ -84,7 +87,6 @@ class DecisionModel(nn.Module):
 
 
 def save_checkpoint(folder, model, tokenizer, max_length):
-    from dataset import ByteTokenizer
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     if not isinstance(tokenizer, ByteTokenizer):
@@ -96,8 +98,6 @@ def save_checkpoint(folder, model, tokenizer, max_length):
 
 
 def load_checkpoint(folder, device="cpu"):
-    from dataset import ByteTokenizer
-    from transformers import AutoTokenizer
     folder = Path(folder)
     metadata = json.loads((folder / "decision_config.json").read_text(encoding="utf-8"))
     if metadata.get("format_version") != 2:

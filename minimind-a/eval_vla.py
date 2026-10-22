@@ -10,51 +10,52 @@ from model.model_vla import MiniMindVLA
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--checkpoint", default="out/toy/vla.pt")
-    p.add_argument("--data", default="data/toy/val.jsonl")
-    p.add_argument("--index", type=int, default=0)
-    p.add_argument("--steps", type=int, default=10)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--device", default="cpu")
-    p.add_argument(
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkpoint", default="out/toy/vla.pt")
+    parser.add_argument("--data", default="data/toy/val.jsonl")
+    parser.add_argument("--index", type=int, default=0)
+    parser.add_argument("--steps", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument(
         "--vision-model-path", help="override relocated local SigLIP directory"
     )
-    p.add_argument("--output", help="optional JSON output file")
-    a = p.parse_args()
+    parser.add_argument("--output", help="optional JSON output file")
+    args = parser.parse_args()
     torch.set_num_threads(1)
-    torch.manual_seed(a.seed)
+    torch.manual_seed(args.seed)
     model = (
-        MiniMindVLA.load_checkpoint(a.checkpoint, a.vision_model_path)
-        .to(a.device)
+        MiniMindVLA.load_checkpoint(args.checkpoint, args.vision_model_path)
+        .to(args.device)
         .eval()
     )
-    path = Path(a.data)
+    path = Path(args.data)
     rows = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
-    r = rows[a.index]
+    row = rows[args.index]
     processor = VLAProcessor(model.config, model.vlm.processor)
-    item = processor(path.parent / r["image"], r["instruction"], r["state"])
-    b = {k: v.to(a.device) for k, v in collate_batch([item]).items()}
-    actions = model.sample_actions(**b, steps=a.steps)[0].cpu()
+    item = processor(path.parent / row["image"], row["instruction"], row["state"])
+    batch = {k: v.to(args.device) for k, v in collate_batch([item]).items()}
+    actions = model.sample_actions(**batch, steps=args.steps)[0].cpu()
     result = dict(
-        instruction=r["instruction"],
+        instruction=row["instruction"],
         actions=actions.tolist(),
         units="normalized; same units as training",
     )
-    if "actions" in r:
-        target = torch.tensor(r["actions"], dtype=torch.float32)
+    if "actions" in row:
+        target = torch.tensor(row["actions"], dtype=torch.float32)
         if (
             target.ndim != 2
             or target.size(1) != model.config.action_dim
             or not 1 <= len(target) <= len(actions)
+            or not torch.isfinite(target).all()
         ):
             raise ValueError("invalid target actions")
         result["mse"] = ((actions[: len(target)] - target) ** 2).mean().item()
     text = json.dumps(result, ensure_ascii=False, indent=2)
     print(text)
-    if a.output:
-        Path(a.output).parent.mkdir(parents=True, exist_ok=True)
-        Path(a.output).write_text(text + "\n")
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(text + "\n")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ def main():
     torch.set_num_threads(1)
     model, tokenizer, length = load_checkpoint(args.checkpoint, args.device)
     batch = DecisionCollator(tokenizer, length)([row])
-    batch = {key: value.to(args.device) if value is not None else None for key, value in batch.items()}
+    batch = {key: value.to(args.device) for key, value in batch.items()}
     with torch.inference_mode():
         probabilities = model(**batch)["probabilities"]
     print(json.dumps(model.decode([row], probabilities)[0], ensure_ascii=False, indent=2))

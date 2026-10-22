@@ -18,11 +18,11 @@ import av
 import numpy as np
 import pyarrow.parquet as pq
 import torch
-from transformers import AutoTokenizer
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from model.model_vla import MiniMindVLA, VLAConfig
+from dataset.vla_dataset import VLAProcessor, collate_batch, pad_tokens
 from scripts.runpod_so101.data_utils import (
     make_chunks,
     normalize,
@@ -30,10 +30,14 @@ from scripts.runpod_so101.data_utils import (
     split_episodes,
 )
 
-ROOT = Path(os.environ.get("SO101_RUN_ROOT", "/shared-volume/minimind-a-so101-20261020"))
+ROOT = Path(
+    os.environ.get("SO101_RUN_ROOT", "/shared-volume/minimind-a-so101-20261020")
+)
 BASE = Path("/shared-volume/minimind-v-sharegpt4v-20261020")
 DATASET = os.environ.get("SO101_DATASET_ID", "caspar/so101_pickplace_sim")
-REVISION = os.environ.get("SO101_DATASET_REVISION", "9b1c5189e3858e9254fc5e48259a035d22da497a")
+REVISION = os.environ.get(
+    "SO101_DATASET_REVISION", "9b1c5189e3858e9254fc5e48259a035d22da497a"
+)
 CAMERA = "observation.images.top"
 EPOCHS, BATCH, HORIZON = 100, 128, 16
 
@@ -187,27 +191,13 @@ def main():
     )
     model.load_vlm_weights(checkpoint)
     frozen_before = frozen_digest(model)
-    tokenizer = AutoTokenizer.from_pretrained(REPO / "model", local_files_only=True)
-    ids = []
-    for row in range(len(indices)):
-        text = tasks[int(table["task_index"][row])]
-        prompt = tokenizer.apply_chat_template(
-            [dict(role="user", content=text)],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        text_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        assert (
-            12 not in text_ids
-            and len(text_ids) + 64 <= cfg.vlm_config["max_position_embeddings"]
-        )
-        ids.append([12] * 64 + text_ids)
-    length = max(map(len, ids))
-    input_ids = torch.zeros(len(ids), length, dtype=torch.long)
-    language_mask = torch.zeros(len(ids), length, dtype=torch.bool)
-    for i, tokens in enumerate(ids):
-        input_ids[i, : len(tokens)] = torch.tensor(tokens)
-        language_mask[i, : len(tokens)] = True
+    processor = VLAProcessor(cfg, model.vlm.processor)
+    task_tokens = {
+        task_id: processor.encode_instruction(text) for task_id, text in tasks.items()
+    }
+    ids = [task_tokens[int(task_id)] for task_id in table["task_index"]]
+    input_ids, language_mask = pad_tokens(ids)
+    length = input_ids.size(1)
     model.cuda().eval()
     phase("cache_frozen_vlm_contexts")
     cache_file = ROOT / f"context_cache_layers{len(model.vlm.model.layers)}.pt"
@@ -269,7 +259,10 @@ def main():
                     encode()
             if frames:
                 encode()
-        assert len(seen) == total_frames, (len(seen), sorted(set(range(total_frames)) - seen)[:20])
+        assert len(seen) == total_frames, (
+            len(seen),
+            sorted(set(range(total_frames)) - seen)[:20],
+        )
         torch.save(
             dict(revision=REVISION, frozen_sha256=frozen_before, hidden=hidden),
             cache_file,
@@ -312,29 +305,13 @@ def main():
     save("training_settings.json", settings)
 
     def context(rows):
-        memory = torch.cat(
-            [model.context_proj(hidden[rows]), model.state_proj(states[rows])[:, None]],
-            1,
-        )
-        visibility = torch.cat(
-            [valid[rows], torch.ones(len(rows), 1, device="cuda", dtype=torch.bool)], 1
-        )
-        return memory, visibility
+        return model.project_context(hidden[rows], valid[rows], states[rows])
 
     def flow_loss(rows, noise=None, time_value=None):
-        y = targets[rows]
-        noise = torch.randn_like(y) if noise is None else noise
-        t = torch.rand(len(rows), device="cuda") if time_value is None else time_value
-        noisy, velocity_target = model.flow_inputs(y, noise, t)
-        noisy = noisy.masked_fill(~masks[rows, :, None], 0)
         memory, visibility = context(rows)
-        pred = model.velocity(memory, visibility, noisy, t, masks[rows])
-        error = (
-            (pred.float() - velocity_target.float())
-            .square()
-            .masked_fill(~masks[rows, :, None], 0)
+        return model.flow_loss(
+            memory, visibility, targets[rows], masks[rows], noise, time_value
         )
-        return error.sum() / (masks[rows].sum() * 6)
 
     def evaluate(action_metrics=False, prediction_file="validation_predictions.npz"):
         model.eval()
@@ -353,10 +330,7 @@ def main():
                 count += weight
                 if action_metrics:
                     memory, visibility = context(rows)
-                    x = noise.clone()
-                    for j in range(10):
-                        time_value = torch.full((len(rows),), j / 10, device="cuda")
-                        x = x + model.velocity(memory, visibility, x, time_value) / 10
+                    x = model.integrate_actions(memory, visibility, noise, steps=10)
                     pred_chunks.append(x.float().cpu())
         report = dict(validation_flow_mse=total / count, validation_frames=len(val_ids))
         if action_metrics:
@@ -517,8 +491,6 @@ def main():
     restored.cuda().eval()
     first = int(val_ids[0])
     image = ROOT / f"examples/frame_{first}.jpg"
-    from dataset.vla_dataset import VLAProcessor, collate_batch
-
     processor = VLAProcessor(cfg, restored.vlm.processor)
     b = collate_batch(
         [
@@ -587,7 +559,14 @@ def main():
     files += [
         p
         for p in ROOT.glob("*.json")
-        if p.name not in ["SHA256.json", "progress.json", "phase.json", "pipeline_phase.json", "pipeline_error.json"]
+        if p.name
+        not in [
+            "SHA256.json",
+            "progress.json",
+            "phase.json",
+            "pipeline_phase.json",
+            "pipeline_error.json",
+        ]
     ]
     files += list(ROOT.glob("*.npz"))
     files += [ROOT / "requirements-resolved.txt"]

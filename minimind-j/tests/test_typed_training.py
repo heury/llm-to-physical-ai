@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from scripts.runpod_typed.train import convert_record, metric_summary, soft_cross_entropy, split_training
+from scripts.runpod_typed import train
+from scripts.runpod_typed.train import convert_record, soft_cross_entropy, split_training
 from dataset import ByteTokenizer, DecisionCollator
+from metrics import metric_summary
 
 
 def fixture():
@@ -66,7 +68,6 @@ def test_stratified_validation_never_uses_official_test():
 
 @pytest.mark.parametrize('sizes', [[1, 3, 2], [2, 1]])
 def test_accumulated_gradients_match_full_question_batch(sizes):
-    from scripts.runpod_typed import train
     torch.manual_seed(9)
     model = torch.nn.Linear(3, 2)
     x = torch.randn(sum(sizes), 3)
@@ -84,3 +85,9 @@ def test_accumulated_gradients_match_full_question_batch(sizes):
     train.normalize_question_gradients(model.parameters(), sum(sizes))
     for parameter, gradient in zip(model.parameters(), expected):
         torch.testing.assert_close(parameter.grad, gradient)
+
+
+@pytest.mark.parametrize('fraction', [0, 1, -.1, 1.1])
+def test_validation_split_rejects_invalid_fraction(fraction):
+    with pytest.raises(ValueError, match='fraction'):
+        split_training([], fraction, 42)

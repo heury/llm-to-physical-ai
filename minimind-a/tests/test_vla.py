@@ -93,6 +93,62 @@ def test_action_padding_does_not_change_valid_loss(siglip_dir):
         model(**{**kwargs, "action_mask": torch.zeros_like(valid)}, actions=actions)
 
 
+def test_numeric_action_mask_uses_boolean_validity(siglip_dir):
+    model = MiniMindVLA(small_config(siglip_dir)).eval()
+    mask = torch.tensor([[2, 1, 0, 0]] * 2)
+    kwargs = dict(
+        **batch(),
+        actions=torch.randn(2, 4, 2),
+        noise=torch.randn(2, 4, 2),
+        time=torch.full((2,), 0.5),
+    )
+    expected = model(**kwargs, action_mask=mask.bool())
+    torch.testing.assert_close(model(**kwargs, action_mask=mask), expected)
+
+
+def test_nonfinite_padding_is_excluded_before_loss_and_backward(siglip_dir):
+    model = MiniMindVLA(small_config(siglip_dir)).eval()
+    actions = torch.randn(2, 4, 2)
+    actions[:, 2:] = float("nan")
+    noise = torch.randn_like(actions)
+    noise[:, 2:] = float("inf")
+    loss = model(
+        **batch(),
+        actions=actions,
+        noise=noise,
+        time=torch.full((2,), 0.5),
+        action_mask=torch.tensor([[True, True, False, False]] * 2),
+    )
+    assert torch.isfinite(loss)
+    loss.backward()
+    assert all(
+        torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None
+    )
+
+
+def test_training_context_matches_native_vlm_with_dropout(siglip_dir):
+    from model.model_vlm import MiniMindVLM, VLMConfig
+
+    config = small_config(siglip_dir)
+    config.vlm_config["dropout"] = 0.25
+    model = MiniMindVLA(config).train()
+    native = MiniMindVLM(VLMConfig(**config.vlm_config), str(siglip_dir)).train()
+    native.load_state_dict(model.vlm.state_dict())
+    native.vision_encoder.eval()
+    inputs = batch()
+    torch.manual_seed(123)
+    expected = native(
+        input_ids=inputs["input_ids"],
+        attention_mask=inputs["attention_mask"].float(),
+        pixel_values={"pixel_values": inputs["pixel_values"]},
+    ).hidden_states
+    torch.manual_seed(123)
+    actual = model.vlm(
+        inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"]
+    )
+    torch.testing.assert_close(actual, expected)
+
+
 def test_sampling_reuses_context_and_restores_training_mode(siglip_dir):
     model = MiniMindVLA(
         small_config(
@@ -106,6 +162,83 @@ def test_sampling_reuses_context_and_restores_training_mode(siglip_dir):
     assert encode.call_count == 1 and result.shape == (2, 4, 2)
     assert torch.isfinite(result).all() and model.training
     torch.testing.assert_close(result, model.sample_actions(**b, noise=noise, steps=5))
+
+
+def test_cached_context_matches_full_training_loss_and_gradients(siglip_dir):
+    model = MiniMindVLA(small_config(siglip_dir, freeze_vlm=True)).train()
+    inputs = batch()
+    actions, noise = torch.randn(2, 4, 2), torch.randn(2, 4, 2)
+    time = torch.tensor([0.2, 0.8])
+    mask = torch.tensor([[True, True, False, False], [True] * 4])
+    parameters = [
+        model.context_proj.weight,
+        model.state_proj.weight,
+        model.action_out.weight,
+    ]
+    full_loss = model(
+        **inputs, actions=actions, noise=noise, time=time, action_mask=mask
+    )
+    full_gradients = torch.autograd.grad(full_loss, parameters)
+
+    with torch.no_grad():
+        hidden = model.vlm(
+            inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"]
+        )
+    memory, valid = model.project_context(
+        hidden, inputs["attention_mask"], inputs["state"]
+    )
+    cached_loss = model.flow_loss(memory, valid, actions, mask, noise, time)
+    cached_gradients = torch.autograd.grad(cached_loss, parameters)
+    torch.testing.assert_close(cached_loss, full_loss)
+    for cached, full in zip(cached_gradients, full_gradients):
+        torch.testing.assert_close(cached, full)
+
+
+def test_masked_flow_loss_uses_valid_scalar_count_and_fp32(siglip_dir):
+    model = MiniMindVLA(small_config(siglip_dir)).eval()
+    memory, valid = model.encode_context(**batch())
+    actions = torch.full((2, 4, 2), 400.0, dtype=torch.float16)
+    mask = torch.tensor([[True, False, False, False], [True, True, False, False]])
+    with patch.object(model, "velocity", return_value=torch.zeros_like(actions)):
+        loss = model.flow_loss(memory, valid, actions, mask, torch.zeros_like(actions))
+    # 모든 유효 원소의 오차는 400². 패딩 비율과 무관하며 FP16에서는 overflow한다.
+    torch.testing.assert_close(loss, torch.tensor(160000.0))
+
+
+@pytest.mark.parametrize("steps", [1, 10])
+def test_euler_constant_field_reaches_known_endpoint(siglip_dir, steps):
+    model = MiniMindVLA(small_config(siglip_dir)).eval()
+    inputs = batch()
+    noise, target = torch.randn(2, 4, 2), torch.randn(2, 4, 2)
+    original_noise = noise.clone()
+    # 일정한 속도장에서는 어떤 step 수로도 정해진 끝점에 도달해야 한다.
+    with patch.object(model, "velocity", return_value=target - noise) as velocity:
+        result = model.sample_actions(**inputs, noise=noise, steps=steps)
+    torch.testing.assert_close(result, target)
+    torch.testing.assert_close(noise, original_noise, rtol=0, atol=0)
+    assert velocity.call_count == steps
+
+
+def test_euler_converges_for_state_dependent_field(siglip_dir):
+    import math
+
+    model = MiniMindVLA(small_config(siglip_dir)).eval()
+    memory, valid = model.encode_context(**batch())
+    noise = torch.ones(2, 4, 2)
+    # dx/dt=x, x(0)=1의 정확한 해는 x(1)=e. 매 step 새 x를 평가해야 수렴한다.
+    with patch.object(model, "velocity", side_effect=lambda memory, valid, x, time: x):
+        coarse = model.integrate_actions(memory, valid, noise, steps=2)
+        fine = model.integrate_actions(memory, valid, noise, steps=100)
+    assert (fine - math.e).abs().max() < 0.02
+    assert (fine - math.e).abs().max() < (coarse - math.e).abs().max()
+
+
+def test_sampling_restores_mode_after_error(siglip_dir):
+    model = MiniMindVLA(small_config(siglip_dir)).train()
+    with pytest.raises(ValueError, match="positive integer"):
+        model.sample_actions(**batch(), steps=True)
+    assert model.training
+    assert not model.vlm.vision_encoder.training
 
 
 def test_all_modalities_change_prediction(siglip_dir):
@@ -321,7 +454,8 @@ def test_native_prefix_matches_truncated_original_and_roundtrips(tmp_path, sigli
     config.vlm_config["num_hidden_layers"] = 4
     original = MiniMindVLM(VLMConfig(**config.vlm_config), str(siglip_dir)).eval()
     native_weights = {
-        k: v for k, v in original.state_dict().items()
+        k: v
+        for k, v in original.state_dict().items()
         if not k.startswith("vision_encoder.")
     }
     path = tmp_path / "native.pth"
@@ -335,7 +469,8 @@ def test_native_prefix_matches_truncated_original_and_roundtrips(tmp_path, sigli
     b = batch()
     with torch.no_grad():
         expected = original(
-            input_ids=b["input_ids"], attention_mask=b["attention_mask"].float(),
+            input_ids=b["input_ids"],
+            attention_mask=b["attention_mask"].float(),
             pixel_values={"pixel_values": b["pixel_values"]},
         ).hidden_states
         actual = model.vlm(b["input_ids"], b["attention_mask"], b["pixel_values"])

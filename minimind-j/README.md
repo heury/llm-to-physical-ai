@@ -1,8 +1,10 @@
 # MiniMind-J · Parallel Typed Decisions
 
-Runpod에서 실제 `LocalLLaMA/typed-decisions`로 학습하는 별도 실행기는 [scripts/runpod_typed/README.md](scripts/runpod_typed/README.md)에 설명했습니다. 질문별 rubric과 soft gold 분포를 유지하며, 공식 test와 분리한 검증 데이터로 최적 epoch를 선택합니다.
-
 공통 입력 하나에 대해 **여러 질문을 MiniMind forward 한 번으로 처리**하는 교육용 모델입니다. 질문 타입에 따라 `choice`는 문자열, `score`는 정수, `noul`은 boolean으로 답합니다. 별도 decision MLP 없이 **기존 LM head**를 재사용합니다.
+
+[Cloudflare Clef](https://developers.cloudflare.com/workers-ai/models/clef/)의 **입력 + 타입이 있는 질문 → 허용된 답의 확률** 개념을 설명하는 작은 샘플입니다. Clef 가중치나 전체 아키텍처를 재현하지 않으며, MiniMind의 LM head로 이 개념을 실습합니다.
+
+수업에서는 `dataset.py` → `model/decision.py` → `train.py` → `decide.py` 순서로 읽으세요. Transformer 내부가 궁금할 때 `model/model_minimind.py`를 보면 됩니다. 외부 데이터 학습과 강건성 평가는 마지막의 선택 실습입니다.
 
 `noul`은 참고한 Unsloth 코드의 boolean 타입 이름입니다. JSON `null`과 다릅니다.
 
@@ -72,7 +74,7 @@ python decide.py --checkpoint out/decision \
 
 ## 한 번의 forward로 처리하는 원리
 
-기존 v1은 후보마다 입력을 복제했습니다. v2는 **record 하나를 시퀀스 하나로** 구성합니다.
+**record 하나를 시퀀스 하나로** 구성합니다.
 
 ```text
 공통 prefix: [BOS] 입력 [SEP]
@@ -132,6 +134,10 @@ python train.py \
 
 `--freeze-backbone`은 LM head만 학습합니다. 입력 embedding과 LM head가 묶여 있으면 출력 weight를 복사해 분리한 뒤 backbone을 동결합니다. 따라서 입력 embedding을 포함한 backbone 가중치가 변하지 않습니다. 이때는 큰 원본 vocab에 해당하는 출력 projection 메모리가 추가됩니다. 이 변경도 checkpoint config에 저장합니다.
 
+## backbone API
+
+`MiniMindModel(input_ids, attention_mask, position_ids)`는 `[batch, length, hidden]` 텐서만 반환합니다. `attention_mask`는 collator가 만든 4D boolean mask이며, 생략하면 일반 causal mask를 사용합니다. 생성용 KV cache와 MoE는 제공하지 않습니다. 기존 dense v2 가중치의 이름과 형태는 유지했습니다.
+
 ## 저장과 호환성
 
 `out/decision/`에 `decision.pth`, `decision_config.json`, `training.json`을 저장합니다. HF tokenizer는 `tokenizer/`에도 저장합니다. 이 폴더와 `minimind-j` 코드만으로 추론하며 형제 프로젝트 import는 필요 없습니다. optimizer를 저장하는 학습 재개 기능과 best epoch 선택은 생략했습니다.
@@ -146,14 +152,19 @@ python train.py \
 | `model/model_minimind.py` | MiniMind backbone과 4D bool mask / batched RoPE 위치 지원 |
 | `model/decision.py` | 기존 LM head의 질문별 점수, CE, typed decoding, native LM 변환, 저장/복원 |
 | `train.py` | 질문 단위 loss/accuracy, AdamW, clipping, backbone 동결 |
+| `metrics.py` | 외부 데이터 학습과 강건성 평가가 공유하는 정확도·KL·Brier·ECE |
 | `decide.py` | JSON 요청으로 여러 질문을 동시에 판정 |
 | `tests/test_decision.py` | 실제 학습, 한 번의 backbone 호출, 질문 간 격리, 순서/배치 불변성, 체크포인트 |
 
 참고: [clef.py](https://github.com/unslothai/unsloth/blob/main/unsloth/models/clef.py), [decision.py](https://github.com/unslothai/unsloth/blob/main/unsloth/models/decision.py), [decision_from_lm.py](https://github.com/unslothai/unsloth/blob/main/unsloth/models/decision_from_lm.py), [decision_datasets.py](https://github.com/unslothai/unsloth/blob/main/unsloth/models/decision_datasets.py).
 
-CLEF의 typed schema 개념을 참고했지만 joint schema head, 질문 간 상호작용, soft targets, calibration, ordinal distance loss, multimodal memory, custom kernel은 구현하지 않았습니다. Apache-2.0이며 출처는 `NOTICE`, 실제 검증 수치는 [docs/verification.md](docs/verification.md)에 기록합니다.
+CLEF의 typed schema 개념을 참고했지만 joint schema head, 질문 간 상호작용, calibration, ordinal distance loss, multimodal memory, custom kernel은 구현하지 않았습니다. Apache-2.0이며 출처는 `NOTICE`, 실제 검증 수치는 [docs/verification.md](docs/verification.md)에 기록합니다.
 
-## 질문 표현·후보 순서 변화 평가
+## 선택 실습: 외부 데이터 학습
+
+RunPod에서 실제 `LocalLLaMA/typed-decisions`로 학습하는 별도 실행기는 [scripts/runpod_typed/README.md](scripts/runpod_typed/README.md)에 설명했습니다. 질문별 rubric과 soft gold 분포를 유지하고 soft cross entropy로 학습합니다. 공식 test와 분리한 검증 데이터로 최적 epoch를 선택합니다. 기본 수업에는 이 실행기가 필요하지 않습니다.
+
+## 선택 실습: 질문 표현·후보 순서 변화 평가
 
 기존 체크포인트를 학습 없이 평가할 수 있습니다.
 

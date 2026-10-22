@@ -10,7 +10,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dataset import DecisionCollator, DecisionDataset, answer_values
 from model.decision import load_checkpoint
-from scripts.runpod_typed.train import metric_summary
+from metrics import metric_summary
 
 
 def variant_rows(rows, variant, paraphrases):

@@ -1,7 +1,11 @@
-"""MiniMind-V context + a small conditional flow-matching action expert.
+"""교육용 VLA: 관측을 읽고, 노이즈 청크를 연속값 행동 청크로 변환한다.
 
-Teaching simplification of SmolVLA, not a checkpoint-compatible reproduction.
-Time convention here is t=0 noise, t=1 data (positive Euler integration).
+학습: forward → encode_context → flow_loss → velocity
+추론: sample_actions → encode_context → integrate_actions → velocity 반복
+
+B: 배치, L: 문맥 토큰 수, H: 행동 청크 길이, A: 행동 차원.
+생성 시간 t는 0=노이즈, 1=행동이며 로봇의 실제 실행 시간과 별개다.
+SmolVLA의 개념을 단순화했으며 그 체크포인트와 호환되지 않는다.
 """
 
 import math
@@ -56,8 +60,9 @@ class VLAConfig:
             "expert_heads",
             "expert_layers",
         ):
-            if getattr(self, name) <= 0:
-                raise ValueError(f"{name} must be positive")
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
         if self.expert_dim % self.expert_heads or self.expert_dim % 2:
             raise ValueError("expert_dim must be even and divisible by expert_heads")
         if self.vlm_config.get("use_moe", False):
@@ -87,11 +92,12 @@ class EducationalVLM(MiniMindVLM):
             self.config.image_hidden_size,
         ):
             raise ValueError("image encoder shape does not match VLM config")
-        h = self.model.embed_tokens(input_ids)
-        h = self.count_vision_proj(
-            input_ids, h, self.vision_proj(image), input_ids.size(1)
+        # encode_context가 검증한 단일 이미지 prefix를 한 번에 교체한다.
+        # 원본 MiniMind-V처럼 텍스트 embedding에 dropout을 적용한 뒤 삽입한다.
+        h = self.model.dropout(self.model.embed_tokens(input_ids))
+        h = torch.cat(
+            [self.vision_proj(image), h[:, self.config.image_token_len :]], dim=1
         )
-        h = self.model.dropout(h)
         pos = (self.model.freqs_cos[: h.size(1)], self.model.freqs_sin[: h.size(1)])
         for layer in self.model.layers:
             h, _ = layer(h, pos, attention_mask=attention_mask.to(h.dtype))
@@ -99,6 +105,8 @@ class EducationalVLM(MiniMindVLM):
 
 
 class MiniMindVLA(nn.Module):
+    """VLM 문맥에 cross-attention하는 작은 행동 Transformer."""
+
     def __init__(self, config: VLAConfig):
         super().__init__()
         self.config = config
@@ -136,6 +144,7 @@ class MiniMindVLA(nn.Module):
         return self
 
     def encode_context(self, input_ids, attention_mask, pixel_values, state):
+        """이미지·지시문·현재 상태를 memory [B,L+1,D]로 만든다."""
         c = self.config
         if input_ids.ndim != 2 or attention_mask.shape != input_ids.shape:
             raise ValueError("input_ids and attention_mask must have shape [B,L]")
@@ -160,24 +169,30 @@ class MiniMindVLA(nn.Module):
         if l > self.vlm.config.max_position_embeddings:
             raise ValueError("context too long")
         h = self.vlm(input_ids, attention_mask, pixel_values)
+        return self.project_context(h, attention_mask, state)
+
+    def project_context(self, hidden, attention_mask, state):
+        """VLM 출력과 상태를 결합한다. 고정 VLM의 캐시도 이 경로를 사용한다."""
         memory = torch.cat(
-            [self.context_proj(h), self.state_proj(state)[:, None]], dim=1
+            [self.context_proj(hidden), self.state_proj(state)[:, None]], dim=1
         )
         valid = torch.cat(
             [
                 attention_mask.bool(),
-                torch.ones(b, 1, dtype=torch.bool, device=h.device),
+                torch.ones(hidden.size(0), 1, dtype=torch.bool, device=hidden.device),
             ],
             dim=1,
         )
         return memory, valid
 
     def velocity(self, memory, valid, noisy_actions, time, action_mask=None):
+        """dx/dt [B,H,A] 예측. 물리적 속도가 아니라 생성 시간에 대한 변화율이다."""
         d = self.config.expert_dim
         frequencies = torch.exp(
             torch.arange(d // 2, device=time.device, dtype=torch.float32)
             * (-math.log(10000) / (max(d // 2 - 1, 1)))
         )
+        # 1000은 시간 embedding의 주파수 배율이며 생성 step 수가 아니다.
         phase = time[:, None] * frequencies[None] * 1000
         time_emb = self.time_mlp(
             torch.cat([phase.sin(), phase.cos()], dim=-1).to(memory.dtype)
@@ -194,8 +209,11 @@ class MiniMindVLA(nn.Module):
 
     @staticmethod
     def flow_inputs(actions, noise, time):
+        """x_t = (1-t)ε + ta, 그 경로의 미분 dx_t/dt = a-ε."""
         t = time[:, None, None]
-        return (1 - t) * noise + t * actions, actions - noise
+        noisy_actions = (1 - t) * noise + t * actions
+        target_velocity = actions - noise
+        return noisy_actions, target_velocity
 
     def forward(
         self,
@@ -208,7 +226,17 @@ class MiniMindVLA(nn.Module):
         noise=None,
         time=None,
     ):
-        b = input_ids.size(0)
+        """관측에서 문맥을 구한 뒤, 임의 시간의 속도 예측 MSE를 반환한다."""
+        memory, valid = self.encode_context(
+            input_ids, attention_mask, pixel_values, state
+        )
+        return self.flow_loss(memory, valid, actions, action_mask, noise, time)
+
+    def flow_loss(
+        self, memory, valid, actions, action_mask=None, noise=None, time=None
+    ):
+        """한 번의 속도 예측으로 학습한다. 학습 중에는 ODE 적분을 하지 않는다."""
+        b = memory.size(0)
         c = self.config
         if actions.shape != (b, c.chunk_size, c.action_dim):
             raise ValueError("wrong action shape")
@@ -216,10 +244,8 @@ class MiniMindVLA(nn.Module):
             action_mask = torch.ones(
                 actions.shape[:2], device=actions.device, dtype=torch.bool
             )
-        if (
-            action_mask.shape != actions.shape[:2]
-            or not action_mask.bool().any(dim=1).all()
-        ):
+        action_mask = action_mask.bool()
+        if action_mask.shape != actions.shape[:2] or not action_mask.any(dim=1).all():
             raise ValueError("each sample needs valid actions")
         noise = torch.randn_like(actions) if noise is None else noise
         time = torch.rand(b, device=actions.device) if time is None else time
@@ -229,22 +255,38 @@ class MiniMindVLA(nn.Module):
             or not ((time >= 0) & (time <= 1)).all()
         ):
             raise ValueError("noise shape or time range invalid")
-        memory, valid = self.encode_context(
-            input_ids, attention_mask, pixel_values, state
-        )
+        # 패딩을 산술 연산 전에 지워 NaN/Inf가 backward로 새는 것도 방지한다.
+        padding = ~action_mask[:, :, None]
+        actions = actions.masked_fill(padding, 0)
+        noise = noise.masked_fill(padding, 0)
         noisy, target = self.flow_inputs(actions, noise, time)
-        # Zero padded actions before attention; padding must not leak into valid steps.
-        noisy = noisy.masked_fill(~action_mask.bool()[:, :, None], 0)
         pred = self.velocity(memory, valid, noisy, time, action_mask)
-        error = (pred - target).square().masked_fill(~action_mask.bool()[:, :, None], 0)
+        # FP32에서 제곱하여 mixed precision의 FP16 overflow를 피한다.
+        error = (pred.float() - target.float()).square().masked_fill(padding, 0)
         return error.sum() / (action_mask.sum() * c.action_dim)
+
+    @torch.no_grad()
+    def integrate_actions(self, memory, valid, noise, steps=10):
+        """eval 모드의 문맥과 노이즈로 Euler 적분한다. 전체 청크를 매번 갱신한다."""
+        if type(steps) is not int or steps < 1:
+            raise ValueError("steps must be a positive integer")
+        shape = (memory.size(0), self.config.chunk_size, self.config.action_dim)
+        if noise.shape != shape:
+            raise ValueError("wrong noise shape")
+
+        actions = noise
+        dt = 1.0 / steps
+        for step in range(steps):
+            time = torch.full((actions.size(0),), step / steps, device=actions.device)
+            velocity = self.velocity(memory, valid, actions, time)
+            actions = actions + dt * velocity
+        return actions
 
     @torch.no_grad()
     def sample_actions(
         self, input_ids, attention_mask, pixel_values, state, noise=None, steps=10
     ):
-        if not isinstance(steps, int) or steps < 1:
-            raise ValueError("steps must be a positive integer")
+        """① 문맥 1회 계산 → ② 노이즈 생성 → ③ 적분 → 행동 [B,H,A]."""
         was_training = self.training
         self.eval()
         try:
@@ -252,17 +294,9 @@ class MiniMindVLA(nn.Module):
                 input_ids, attention_mask, pixel_values, state
             )
             shape = (input_ids.size(0), self.config.chunk_size, self.config.action_dim)
-            x = (
-                torch.randn(shape, device=state.device, dtype=state.dtype)
-                if noise is None
-                else noise.clone()
-            )
-            if x.shape != shape:
-                raise ValueError("wrong noise shape")
-            for i in range(steps):
-                time = x.new_full((x.size(0),), i / steps)
-                x = x + self.velocity(memory, valid, x, time) / steps
-            return x
+            if noise is None:
+                noise = torch.randn(shape, device=state.device, dtype=state.dtype)
+            return self.integrate_actions(memory, valid, noise, steps)
         finally:
             self.train(was_training)
 
@@ -277,14 +311,7 @@ class MiniMindVLA(nn.Module):
             for key in self.vlm.model.layers[0].state_dict()
         }
         weights = {k: v for k, v in weights.items() if k not in discarded}
-        expected = self.vlm.state_dict()
-        missing = set(expected) - set(weights)
-        unexpected = set(weights) - set(expected)
-        if unexpected or any(not k.startswith("vision_encoder.") for k in missing):
-            raise ValueError(
-                f"Incompatible VLM checkpoint: missing={sorted(missing)}, extra={sorted(unexpected)}"
-            )
-        self.vlm.load_state_dict(weights, strict=not missing)
+        _load_weights(self.vlm, weights, "vision_encoder.", "VLM")
 
     def save_checkpoint(self, path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -310,13 +337,17 @@ class MiniMindVLA(nn.Module):
         if vision_model_path is not None:
             config.vision_model_path = vision_model_path
         model = cls(config)
-        expected = set(model.state_dict())
-        supplied = set(data["model"])
-        missing = expected - supplied
-        unexpected = supplied - expected
-        if unexpected or any(not k.startswith("vlm.vision_encoder.") for k in missing):
-            raise ValueError(
-                "Incompatible VLA checkpoint: missing or unexpected model weights"
-            )
-        model.load_state_dict(data["model"], strict=not missing)
+        _load_weights(model, data["model"], "vlm.vision_encoder.", "VLA")
         return model
+
+
+def _load_weights(module, weights, external_prefix, name):
+    """별도 폴더에서 읽는 SigLIP 외에는 모든 가중치가 정확히 있어야 한다."""
+    expected = set(module.state_dict())
+    missing = expected - set(weights)
+    unexpected = set(weights) - expected
+    if unexpected or any(not key.startswith(external_prefix) for key in missing):
+        raise ValueError(
+            f"Incompatible {name} checkpoint: missing={sorted(missing)}, extra={sorted(unexpected)}"
+        )
+    module.load_state_dict(weights, strict=not missing)
