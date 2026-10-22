@@ -51,19 +51,19 @@ def train_epoch(epoch, loader, iters, teacher_model, lm_config_student, start_st
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-        # 前向传播（学生模型）
+        # 순전파(학생 모델)
         with autocast_ctx:
             res = model(input_ids)
             student_logits = res.logits[..., :-1, :].contiguous()
 
-        # 教师模型前向传播（只在eval & no_grad）
+        # 교사 모델 순전파(eval 및 no_grad에서만 수행)
         if teacher_model is not None:
             with torch.no_grad():
                 teacher_logits = teacher_model(input_ids).logits[..., :-1, :].contiguous()
                 vocab_size_student = student_logits.size(-1)
                 teacher_logits = teacher_logits[..., :vocab_size_student]
 
-        # ========== 计算损失 ==========
+        # ========== 손실 계산 ==========
         # 1) Ground-Truth CE Loss
         shift_labels = labels[..., 1:].contiguous()
         loss_mask_flat = loss_mask.view(-1)
@@ -87,7 +87,7 @@ def train_epoch(epoch, loader, iters, teacher_model, lm_config_student, start_st
         else:
             distill_loss = torch.tensor(0.0, device=args.device)
 
-        # 3) 总损失 = alpha * CE + (1-alpha) * Distill
+        # 3) 전체 손실 = alpha * CE + (1-alpha) * Distill
         loss = (alpha * ce_loss + (1 - alpha) * distill_loss) / args.accumulation_steps
 
         scaler.scale(loss).backward()
@@ -135,55 +135,55 @@ def train_epoch(epoch, loader, iters, teacher_model, lm_config_student, start_st
 
 
 if __name__ == "__main__":
-    # 模拟用moe模型蒸馏dense模型，也可以用更大teacher_hidden_size模型蒸馏更小student_hidden_size的
+    # MoE 모델에서 dense 모델로 지식을 증류하는 예제이며, teacher_hidden_size가 큰 모델에서 student_hidden_size가 작은 모델로 증류할 수도 있음
     parser = argparse.ArgumentParser(description="MiniMind Knowledge Distillation")
-    parser.add_argument("--save_dir", type=str, default="../out", help="模型保存目录")
-    parser.add_argument('--save_weight', default='full_dist', type=str, help="保存权重的前缀名")
-    parser.add_argument("--epochs", type=int, default=6, help="训练轮数")
+    parser.add_argument("--save_dir", type=str, default="../out", help="모델 저장 디렉토리")
+    parser.add_argument('--save_weight', default='full_dist', type=str, help="저장할 가중치 이름의 접두사")
+    parser.add_argument("--epochs", type=int, default=6, help="학습 에포크 수")
     parser.add_argument("--batch_size", type=int, default=32, help="batch size")
-    parser.add_argument("--learning_rate", type=float, default=5e-6, help="初始学习率")
-    parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
-    parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
-    parser.add_argument("--num_workers", type=int, default=8, help="数据加载线程数")
-    parser.add_argument("--accumulation_steps", type=int, default=1, help="梯度累积步数")
-    parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
-    parser.add_argument("--log_interval", type=int, default=100, help="日志打印间隔")
-    parser.add_argument("--save_interval", type=int, default=100, help="模型保存间隔")
-    parser.add_argument("--max_seq_len", type=int, default=340, help="训练的最大截断长度（中文1token≈1.5~1.7字符）")
-    parser.add_argument("--data_path", type=str, default="../dataset/sft_t2t_mini.jsonl", help="训练数据路径")
-    parser.add_argument('--student_hidden_size', default=768, type=int, help="学生模型隐藏层维度")
-    parser.add_argument('--student_num_layers', default=8, type=int, help="学生模型隐藏层数量")
-    parser.add_argument('--teacher_hidden_size', default=768, type=int, help="教师模型隐藏层维度")
-    parser.add_argument('--teacher_num_layers', default=8, type=int, help="教师模型隐藏层数量")
-    parser.add_argument('--student_use_moe', default=0, type=int, choices=[0, 1], help="学生模型是否使用MoE（0=否，1=是）")
-    parser.add_argument('--teacher_use_moe', default=1, type=int, choices=[0, 1], help="教师模型是否使用MoE（0=否，1=是）")
-    parser.add_argument('--from_student_weight', default='full_sft', type=str, help="学生模型基于哪个权重")
-    parser.add_argument('--from_teacher_weight', default='full_sft', type=str, help="教师模型基于哪个权重")
-    parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
-    parser.add_argument('--alpha', default=0.5, type=float, help="CE损失权重，总损失=alpha*CE+(1-alpha)*KL")
-    parser.add_argument('--temperature', default=1.5, type=float, help="蒸馏温度（推荐范围1.0-2.0）")
-    parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
-    parser.add_argument("--wandb_project", type=str, default="MiniMind-Distillation", help="wandb项目名")
-    parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="是否使用torch.compile加速（0=否，1=是）")
+    parser.add_argument("--learning_rate", type=float, default=5e-6, help="초기 학습률")
+    parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="학습 장치")
+    parser.add_argument("--dtype", type=str, default="bfloat16", help="혼합 정밀도 유형")
+    parser.add_argument("--num_workers", type=int, default=8, help="데이터 로딩 작업자 수")
+    parser.add_argument("--accumulation_steps", type=int, default=1, help="기울기 누적 단계 수")
+    parser.add_argument("--grad_clip", type=float, default=1.0, help="기울기 클리핑 임계값")
+    parser.add_argument("--log_interval", type=int, default=100, help="로그 출력 간격")
+    parser.add_argument("--save_interval", type=int, default=100, help="모델 저장 간격")
+    parser.add_argument("--max_seq_len", type=int, default=340, help="학습 시 최대 절단 길이(중국어 1토큰≈1.5~1.7자)")
+    parser.add_argument("--data_path", type=str, default="../dataset/sft_t2t_mini.jsonl", help="학습 데이터 경로")
+    parser.add_argument('--student_hidden_size', default=768, type=int, help="학생 모델 은닉층 차원")
+    parser.add_argument('--student_num_layers', default=8, type=int, help="학생 모델 은닉층 수")
+    parser.add_argument('--teacher_hidden_size', default=768, type=int, help="교사 모델 은닉층 차원")
+    parser.add_argument('--teacher_num_layers', default=8, type=int, help="교사 모델 은닉층 수")
+    parser.add_argument('--student_use_moe', default=0, type=int, choices=[0, 1], help="학생 모델의 MoE 사용 여부(0=아니요, 1=예)")
+    parser.add_argument('--teacher_use_moe', default=1, type=int, choices=[0, 1], help="교사 모델의 MoE 사용 여부(0=아니요, 1=예)")
+    parser.add_argument('--from_student_weight', default='full_sft', type=str, help="학생 모델 초기 가중치")
+    parser.add_argument('--from_teacher_weight', default='full_sft', type=str, help="교사 모델 초기 가중치")
+    parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="체크포인트 자동 감지 및 학습 재개 여부(0=아니요, 1=예)")
+    parser.add_argument('--alpha', default=0.5, type=float, help="CE 손실 가중치, 전체 손실=alpha*CE+(1-alpha)*KL")
+    parser.add_argument('--temperature', default=1.5, type=float, help="증류 온도(권장 범위 1.0-2.0)")
+    parser.add_argument("--use_wandb", action="store_true", help="wandb 사용 여부")
+    parser.add_argument("--wandb_project", type=str, default="MiniMind-Distillation", help="wandb 프로젝트 이름")
+    parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="torch.compile 가속 사용 여부(0=아니요, 1=예)")
     args = parser.parse_args()
 
-    # ========== 1. 初始化环境和随机种子 ==========
+    # ========== 1. 환경 및 난수 시드 초기화 ==========
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
     setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
     
-    # ========== 2. 配置目录、模型参数、检查ckp ==========
+    # ========== 2. 디렉토리와 모델 매개변수 설정 및 체크포인트 확인 ==========
     os.makedirs(args.save_dir, exist_ok=True)
     lm_config_student = MiniMindConfig(hidden_size=args.student_hidden_size, num_hidden_layers=args.student_num_layers, use_moe=bool(args.student_use_moe))
     lm_config_teacher = MiniMindConfig(hidden_size=args.teacher_hidden_size, num_hidden_layers=args.teacher_num_layers, use_moe=bool(args.teacher_use_moe))
     ckp_data = lm_checkpoint(lm_config_student, weight=args.save_weight, save_dir='../checkpoints') if args.from_resume==1 else None
     
-    # ========== 3. 设置混合精度 ==========
+    # ========== 3. 혼합 정밀도 설정 ==========
     device_type = "cuda" if "cuda" in args.device else "cpu"
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
     autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
     
-    # ========== 4. 配wandb ==========
+    # ========== 4. wandb 설정 ==========
     wandb = None
     if args.use_wandb and is_main_process():
         import swanlab as wandb
@@ -192,19 +192,19 @@ if __name__ == "__main__":
         wandb_run_name = f"MiniMind-Distill-S{args.student_hidden_size}T{args.teacher_hidden_size}-Epoch-{args.epochs}-BS-{args.batch_size}-LR-{args.learning_rate}"
         wandb.init(project=args.wandb_project, name=wandb_run_name, id=wandb_id, resume=resume)
     
-    # ========== 5. 定义学生和教师模型 ==========
+    # ========== 5. 학생 모델 및 교사 모델 정의 ==========
     model, tokenizer = init_model(lm_config_student, args.from_student_weight, device=args.device)
-    Logger(f'学生模型总参数量：{sum(p.numel() for p in model.parameters()) / 1e6:.3f} M')
+    Logger(f'학생 모델 전체 매개변수 수: {sum(p.numel() for p in model.parameters()) / 1e6:.3f} M')
     teacher_model, _ = init_model(lm_config_teacher, args.from_teacher_weight, device=args.device)
     teacher_model.eval()
     teacher_model.requires_grad_(False)
-    Logger(f'教师模型总参数量：{sum(p.numel() for p in teacher_model.parameters()) / 1e6:.3f} M')
+    Logger(f'교사 모델 전체 매개변수 수: {sum(p.numel() for p in teacher_model.parameters()) / 1e6:.3f} M')
     train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     
-    # ========== 6. 从ckp恢复状态 ==========
+    # ========== 6. 체크포인트에서 상태 복원 ==========
     start_epoch, start_step = 0, 0
     if ckp_data:
         model.load_state_dict(ckp_data['model'])
@@ -213,14 +213,14 @@ if __name__ == "__main__":
         start_epoch = ckp_data['epoch']
         start_step = ckp_data.get('step', 0)
     
-    # ========== 7. 编译和分布式包装 ==========
+    # ========== 7. 컴파일 및 분산 래핑 ==========
     if args.use_compile == 1:
         model = torch.compile(model)
         Logger('torch.compile enabled')
     if dist.is_initialized():
         model = DistributedDataParallel(model, device_ids=[local_rank])
     
-    # ========== 8. 开始训练 ==========
+    # ========== 8. 학습 시작 ==========
     for epoch in range(start_epoch, args.epochs):
         train_sampler and train_sampler.set_epoch(epoch)
         setup_seed(42 + epoch); indices = torch.randperm(len(train_ds)).tolist()
@@ -228,12 +228,12 @@ if __name__ == "__main__":
         batch_sampler = SkipBatchSampler(train_sampler or indices, args.batch_size, skip)
         loader = DataLoader(train_ds, batch_sampler=batch_sampler, num_workers=args.num_workers, pin_memory=True)
         if skip > 0: 
-            Logger(f'Epoch [{epoch + 1}/{args.epochs}]: 跳过前{start_step}个step，从step {start_step + 1}开始')
+            Logger(f'Epoch [{epoch + 1}/{args.epochs}]: 처음 {start_step}개 단계를 건너뛰고 단계 {start_step + 1}시작')
             train_epoch(epoch, loader, len(loader) + skip, teacher_model, lm_config_student, start_step, wandb, args.alpha, args.temperature)
         else:
             train_epoch(epoch, loader, len(loader), teacher_model, lm_config_student, 0, wandb, args.alpha, args.temperature)
     
-    # ========== 9. 清理分布进程 ==========
+    # ========== 9. 분산 프로세스 정리 ==========
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()

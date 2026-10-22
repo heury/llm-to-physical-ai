@@ -360,8 +360,8 @@ class MiniMindOmni(MiniMindForCausalLM):
                 text_token = args.get('enter_token_id', 201) if first_finished else args.get('pad_token_id', 0)
                 first_finished = False
 
-            step = input_ids.shape[1] - start_pos  # 已生成token数（0=首次，此时模型处理prompt末尾token）
-            audio_step = step - 1  # 延迟1步：输出第1个text时无audio，输出第2个text时layer0开始
+            step = input_ids.shape[1] - start_pos  # 생성된 토큰 수 (0=첫 단계, 이때 모델은 프롬프트의 마지막 토큰을 처리)
+            audio_step = step - 1  # 1단계 지연: 첫 번째 텍스트 토큰 출력 시 오디오는 없고, 두 번째 텍스트 토큰 출력 시 layer0 시작
             if generated_tokens is not None:
                 generated_tokens.append(text_token)
                 if not think_end_step and generated_tokens[-len(self.config.think_end_ids):] == list(self.config.think_end_ids): think_end_step = step + 2
@@ -395,7 +395,7 @@ class MiniMindOmni(MiniMindForCausalLM):
                 yield None, audio_frame
 
 
-# ==== Realtime VAD (与模型本体零耦合，纯工程层) ====
+# ==== Realtime VAD (모델 본체와 독립적인 구현 계층) ====
 class SileroVAD:
     def __init__(self, path):
         opts = ort.SessionOptions()

@@ -1,5 +1,5 @@
 """
-训练工具函数集合
+학습 유틸리티 함수 모음
 """
 import os
 import random
@@ -24,13 +24,13 @@ def Logger(content):
 
 
 def get_lr(current_step, total_steps, lr):
-    # 与 mmv 保持一致：初始 lr=1.0*base_lr，最终 lr=0.1*base_lr
+    # mmv와 동일하게 유지: 초기 lr=1.0*base_lr, 최종 lr=0.1*base_lr
     return lr * (0.1 + 0.45 * (1 + math.cos(math.pi * current_step / total_steps)))
 
 
 def init_distributed_mode():
     if int(os.environ.get("RANK", -1)) == -1:
-        return 0  # 非DDP模式
+        return 0  # DDP를 사용하지 않는 모드
     
     dist.init_process_group(backend="nccl")
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -75,10 +75,10 @@ def init_omni_model(omni_config, from_weight='full_sft', tokenizer_path='../mode
             param_shapes = {k: v.shape for k, v in model.named_parameters()}
             incompatible = {k for k, v in weights.items() if k in param_shapes and v.shape != param_shapes[k]}
             if incompatible:
-                Logger(f'跳过shape不匹配的权重: {incompatible}')
+                Logger(f'형태가 일치하지 않는 가중치 건너뛰기: {incompatible}')
                 weights = {k: v for k, v in weights.items() if k not in incompatible}
             model.load_state_dict(weights, strict=False)
-            Logger(f'已加载权重: {weight_path}')
+            Logger(f'불러온 가중치: {weight_path}')
             if from_resume == 0 and omni_config.talker_hidden_size == omni_config.hidden_size:
                 n_talker = omni_config.num_talker_hidden_layers
                 n_thinker = len(model.thinker.layers)
@@ -87,18 +87,18 @@ def init_omni_model(omni_config, from_weight='full_sft', tokenizer_path='../mode
                     for i in range(n_talker):
                         src = n_thinker - n_talker + i
                         model.talker.layers[i].load_state_dict(model.thinker.layers[src].state_dict())
-                    Logger(f'Talker层初始化: 复制thinker layers[{n_thinker-n_talker}:{n_thinker}] → talker layers[0:{n_talker}]')
+                    Logger(f'Talker 층 초기화: thinker layers 복사 [{n_thinker-n_talker}:{n_thinker}] → talker layers[0:{n_talker}]')
     
-    # 冻结策略
+    # 고정 전략
     if freeze_backbone == 'all':
-        # 冻结整个主干模型
+        # 전체 백본 모델 고정
         for param in model.model.parameters():
             param.requires_grad = False
     elif freeze_backbone == 'last1':
-        # 冻结除了最后1层之外的所有层
+        # 마지막 1개 층을 제외한 모든 층 고정
         for param in model.model.parameters():
             param.requires_grad = False
-        # 打开最后1层
+        # 마지막 1개 층의 학습 활성화
         if hasattr(model.model, 'layers') and len(model.model.layers) > 0:
             for param in model.model.layers[-1].parameters():
                 param.requires_grad = True
@@ -115,7 +115,7 @@ def omni_checkpoint(omni_config, weight='pretrain_omni', model=None, optimizer=N
         from torch.nn.parallel import DistributedDataParallel
         raw_model = model.module if isinstance(model, DistributedDataParallel) else model
         raw_model = getattr(raw_model, '_orig_mod', raw_model)
-        # 移除冻结的 audio_encoder / vision_encoder 参数（不需要保存，从预训练路径重新加载）
+        # 고정된 audio_encoder / vision_encoder 매개변수 제거(저장하지 않고 사전 학습 경로에서 다시 불러옴)
         clean_state_dict = {k: v for k, v in raw_model.state_dict().items() if not k.startswith('audio_encoder.') and not k.startswith('vision_encoder.')}
         state_dict = {k: v.half().cpu() for k, v in clean_state_dict.items()}
         ckp_tmp = ckp_path + '.tmp'
@@ -151,14 +151,14 @@ def omni_checkpoint(omni_config, weight='pretrain_omni', model=None, optimizer=N
         resume_tmp = resume_path + '.tmp'
         torch.save(resume_data, resume_tmp)
         os.replace(resume_tmp, resume_path)
-    else:  # 加载模式
+    else:  # 불러오기 모드
         if os.path.exists(resume_path):
             ckp_data = torch.load(resume_path, map_location='cpu')
             saved_ws = ckp_data.get('world_size', 1)
             current_ws = dist.get_world_size() if dist.is_initialized() else 1
             if saved_ws != current_ws:
                 ckp_data['step'] = ckp_data['step'] * saved_ws // current_ws
-                Logger(f'GPU数量变化({saved_ws}→{current_ws})，step已自动转换为{ckp_data["step"]}')
+                Logger(f'GPU 수 변경({saved_ws}→{current_ws}), step이 자동 변환됨: {ckp_data["step"]}')
             return ckp_data
         return None
 

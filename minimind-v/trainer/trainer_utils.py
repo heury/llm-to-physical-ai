@@ -1,5 +1,5 @@
 """
-训练工具函数集合
+학습 유틸리티 함수 모음
 """
 import os
 import sys
@@ -45,7 +45,7 @@ def get_lr(current_step, total_steps, lr):
 
 def init_distributed_mode():
     if int(os.environ.get("RANK", -1)) == -1:
-        return 0  # 非DDP模式
+        return 0  # DDP를 사용하지 않는 모드
     
     dist.init_process_group(backend="nccl")
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -73,12 +73,12 @@ def init_vlm_model(vlm_config, from_weight='pretrain_vlm', tokenizer_path='../mo
         weights = torch.load(weight_path, map_location=device)
         model.load_state_dict(weights, strict=False)
     
-    # 1、全部冻结，只打开vision_proj梯度
+    # 1、전체를 고정하고 vision_proj의 기울기만 활성화
     for name, param in model.named_parameters():
         if 'vision_proj' not in name:
             param.requires_grad = False
 
-    # 2、判断策略
+    # 2、전략 확인
     if freeze_llm == 0:
         for name, param in model.named_parameters():
             if 'vision_encoder' not in name:
@@ -107,7 +107,7 @@ def vlm_checkpoint(vlm_config, weight='pretrain_vlm', model=None, optimizer=None
         raw_model = model.module if isinstance(model, DistributedDataParallel) else model
         raw_model = getattr(raw_model, '_orig_mod', raw_model)
         state_dict = raw_model.state_dict()
-        # 移除vision_encoder参数（不需要保存，因为是预训练的）
+        # vision_encoder 매개변수 제거(사전 학습된 값이므로 저장 불필요)
         clean_state_dict = {k: v for k, v in state_dict.items() if not k.startswith('vision_encoder.')}
         ckp_tmp = ckp_path + '.tmp'
         torch.save({k: v.half().cpu() for k, v in clean_state_dict.items()}, ckp_tmp)
@@ -143,14 +143,14 @@ def vlm_checkpoint(vlm_config, weight='pretrain_vlm', model=None, optimizer=None
         os.replace(resume_tmp, resume_path)
         del state_dict, clean_state_dict, resume_data
         torch.cuda.empty_cache()
-    else:  # 加载模式
+    else:  # 불러오기 모드
         if os.path.exists(resume_path):
             ckp_data = torch.load(resume_path, map_location='cpu')
             saved_ws = ckp_data.get('world_size', 1)
             current_ws = dist.get_world_size() if dist.is_initialized() else 1
             if saved_ws != current_ws:
                 ckp_data['step'] = ckp_data['step'] * saved_ws // current_ws
-                Logger(f'GPU数量变化({saved_ws}→{current_ws})，step已自动转换为{ckp_data["step"]}')
+                Logger(f'GPU 수 변경({saved_ws}→{current_ws}), step이 자동 변환됨: {ckp_data["step"]}')
             return ckp_data
         return None
 

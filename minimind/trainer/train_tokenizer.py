@@ -1,4 +1,4 @@
-# 注：不建议再重复训练tokenizer（“词典”），MiniMind已自带，此脚本仅供学习和参考。基于不同词典训练的模型将导致输出完全不统一，降低社区的模型复用性
+# 참고: MiniMind에 토크나이저가 포함되어 있으므로 재학습은 권장하지 않습니다. 이 스크립트는 학습과 참고용입니다. 서로 다른 어휘 목록으로 학습한 모델은 출력이 달라져 커뮤니티에서 모델을 재사용하기 어려워집니다.
 # Note: It is not recommended to re-train the tokenizer. MiniMind already includes one. This script is for learning and reference only. Training models with different tokenizers will lead to inconsistent outputs and reduce model reusability in the community.
 import os
 import json
@@ -11,7 +11,7 @@ DATA_PATH = '../dataset/sft_t2t_mini.jsonl'
 TOKENIZER_DIR = '../model_learn_tokenizer/'
 VOCAB_SIZE = 6400
 SPECIAL_TOKENS_NUM = 36
-MAX_LINES = 0  # 0 表示读取全部；设为正数则只取前 N 条（快速试跑）
+MAX_LINES = 0  # 0이면 전체를 읽고, 양수이면 처음 N개만 사용(빠른 시험 실행)
 
 def get_hf_texts(dataset_name, split='train', revision=None, max_lines=MAX_LINES, stats=None):
     """Stream a Hugging Face text dataset without materializing the full corpus."""
@@ -34,12 +34,13 @@ def get_hf_texts(dataset_name, split='train', revision=None, max_lines=MAX_LINES
         raise ValueError(f'{dataset_name}: no non-empty strings in the text column')
 
 def get_texts(data_path, max_lines=MAX_LINES):
-    """逐行产出用于训练 BPE 的文本，兼容两种主线数据格式。
+    """BPE 학습용 텍스트를 한 줄씩 반환하며 두 가지 주요 데이터 형식을 지원합니다.
 
-    pretrain_t2t(_mini).jsonl 是 {"text": ...}，
-    sft_t2t(_mini).jsonl 是 {"conversations": [{"role":..., "content":...}, ...]}。
-    原先只解析 conversations，所以把 DATA_PATH 指向预训练语料时一条文本都取不到，
-    BPE 仅基于 initial_alphabet 训练，产出一个没有任何 merge 的词表，且全程不报错。
+    pretrain_t2t(_mini).jsonl 형식: {"text": ...}
+    sft_t2t(_mini).jsonl 형식: {"conversations": [{"role":..., "content":...}, ...]}
+    기존에는 conversations만 파싱하여 DATA_PATH에 사전 학습 데이터를 지정하면
+    텍스트를 하나도 읽지 못했습니다. 이 경우 BPE는 initial_alphabet만으로 학습되어
+    병합 규칙이 없는 어휘 목록을 생성하면서도 오류를 보고하지 않았습니다.
     """
     used = 0
     with open(data_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -60,9 +61,9 @@ def get_texts(data_path, max_lines=MAX_LINES):
                 yield text
     if used == 0:
         raise ValueError(
-            f'{data_path} 中没有可用文本：每行应为 {{"text": ...}} 或 '
-            f'{{"conversations": [{{"role":..., "content":...}}, ...]}}。'
-            f'继续训练只会得到一个空词表。'
+            f'{data_path}에 사용 가능한 텍스트가 없음: 각 줄은 다음 형식이어야 함 {{"text": ...}} 또는 '
+            f'{{"conversations": [{{"role":..., "content":...}}, ...]}}.'
+            f'학습을 계속하면 빈 어휘 목록만 생성됩니다.'
         )
 
 def train_tokenizer(data_path, tokenizer_dir, vocab_size, special_tokens_num=SPECIAL_TOKENS_NUM, texts=None):
@@ -85,7 +86,7 @@ def train_tokenizer(data_path, tokenizer_dir, vocab_size, special_tokens_num=SPE
         "<think>", "</think>"
     ]
     num_buffer = special_tokens_num - len(special_tokens_list + additional_tokens_list)
-    buffer_tokens = [f"<|buffer{i}|>" for i in range(1, num_buffer + 1)] # 预留一定数量的token位置
+    buffer_tokens = [f"<|buffer{i}|>" for i in range(1, num_buffer + 1)] # 일정 수의 토큰 위치를 미리 확보
     all_special_tokens = special_tokens_list + additional_tokens_list + buffer_tokens
     trainer = trainers.BpeTrainer(
         vocab_size=vocab_size,
@@ -174,11 +175,11 @@ def eval_tokenizer(tokenizer_dir):
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
     messages = [
-        {"role": "system", "content": "你是一个优秀的聊天机器人，总是给我正确的回应！"},
-        {"role": "user", "content": '你来自哪里？'},
-        {"role": "assistant", "content": '我来自月球'},
-        {"role": "user", "content": '你到底来自哪里？'},
-        {"role": "assistant", "content": '我来自地球'}
+        {"role": "system", "content": "너는 항상 정확한 답변을 제공하는 훌륭한 챗봇이야!"},
+        {"role": "user", "content": '너는 어디에서 왔니?'},
+        {"role": "assistant", "content": '나는 달에서 왔어'},
+        {"role": "user", "content": '너는 도대체 어디에서 왔니?'},
+        {"role": "assistant", "content": '나는 지구에서 왔어'}
     ]
     new_prompt = tokenizer.apply_chat_template(
         messages,
@@ -187,22 +188,22 @@ def eval_tokenizer(tokenizer_dir):
     print('-'*100)
     print(new_prompt)
     print('-'*100)
-    print('tokenizer词表长度：', len(tokenizer))
+    print('토크나이저 어휘 수: ', len(tokenizer))
     model_inputs = tokenizer(new_prompt)
-    print('encoder长度：', len(model_inputs['input_ids']))
+    print('인코딩 길이: ', len(model_inputs['input_ids']))
     response = tokenizer.decode(model_inputs['input_ids'], skip_special_tokens=False)
-    print('decoder一致性：', response == new_prompt, "\n")
+    print('디코더 일치 여부: ', response == new_prompt, "\n")
     print('-'*100)
-    print('压缩率测试（Chars/Tokens）：')
+    print('압축률 테스트(문자 수/토큰 수): ')
     test_texts = [
-        # 中文样本 (约200字)
-        "人工智能是计算机科学的一个分支，它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器，该领域的研究包括机器人、语言识别、图像识别、自然语言处理和专家系统等。人工智能从诞生以来，理论和技术日益成熟，应用领域也不断扩大，可以设想，未来人工智能带来的科技产品，将会是人类智慧的“容器”。人工智能可以对人的意识、思维的信息过程的模拟。人工智能不是人的智能，但能像人那样思考、也可能超过人的智能。",
-        "星际航行是指在星系内甚至星系间的空间中进行的航行。由于宇宙空间极其广阔，传统的化学火箭动力在恒星间航行时显得力不从心。科学家们提出了多种方案，包括离子推进器、核热火箭、甚至是利用反物质作为能源的设想。此外，曲率驱动和虫洞旅行等科幻概念也在理论物理研究中被反复探讨。尽管目前人类的足迹仅限于月球，但随着核聚变技术和材料科学的突破，前往火星乃至更遥远的太阳系边缘将成为可能。",
-        # 英文样本 (约200词/字符)
+        # 한국어로 번역한 샘플
+        "인공지능은 지능의 본질을 이해하고 인간의 지능과 유사하게 반응하는 기계를 만들려는 컴퓨터 과학의 한 분야입니다. 로봇, 음성 인식, 이미지 인식, 자연어 처리와 전문가 시스템 등을 연구합니다. 인공지능이 등장한 이후 이론과 기술은 점차 발전했고 응용 분야도 계속 확대되었습니다. 앞으로 인공지능을 활용한 기술 제품은 인간 지혜를 담는 그릇이 될 수 있습니다. 인공지능은 인간의 의식과 사고에서 이루어지는 정보 처리를 모방할 수 있습니다. 인간의 지능 자체는 아니지만 사람처럼 사고하고 인간의 지능을 뛰어넘을 수도 있습니다.",
+        "성간 항해는 은하 내부 또는 은하 사이의 우주 공간을 이동하는 항해를 뜻합니다. 우주는 매우 넓어 기존의 화학 로켓으로 별 사이를 여행하기에는 한계가 있습니다. 과학자들은 이온 추진기, 핵열 로켓, 반물질을 에너지원으로 사용하는 구상 등 다양한 방안을 제안했습니다. 워프 드라이브와 웜홀 여행 같은 공상과학 개념도 이론물리학에서 반복적으로 논의됩니다. 현재 인간이 직접 도달한 곳은 달까지이지만, 핵융합 기술과 재료 과학이 발전하면 화성과 더 먼 태양계 가장자리까지 갈 수 있을 것입니다.",
+        # 영어 샘플(약 200단어/자)
         "Large language models (LLMs) are a type of artificial intelligence (AI) trained on vast amounts of text data to understand and generate human-like language. These models use deep learning techniques, specifically transformers, to process and predict the next word in a sequence. LLMs like GPT-4, Llama, and Claude have demonstrated remarkable capabilities in coding, translation, and creative writing. However, they also face challenges such as hallucinations, where the model generates factually incorrect information, and the need for significant computational resources.",
         "The development of sustainable energy is crucial for the future of our planet. As climate change continues to impact global weather patterns, transitioning from fossil fuels to renewable sources like solar, wind, and hydroelectric power has become an urgent priority. Innovations in battery storage technology and smart grid management are essential to ensure a reliable energy supply. International cooperation and policy frameworks are also necessary to drive the global shift towards a greener economy and reduce carbon emissions.",
-        # 混合样本
-        "Python 是一种高级编程语言，以其简洁的语法和强大的生态系统而闻名。It is widely used in data science, machine learning, and web development. 开发者可以利用 NumPy, Pandas, and PyTorch 等库快速构建复杂的应用。学习 Python 的过程非常愉快，因为它的代码读起来就像英语一样。Whether you are a beginner or an expert, Python offers something for everyone.",
+        # 혼합 샘플
+        "Python은 간결한 문법과 강력한 생태계로 유명한 고급 프로그래밍 언어입니다. It is widely used in data science, machine learning, and web development. 개발자는 NumPy, Pandas, and PyTorch 등의 라이브러리로 복잡한 응용 프로그램을 빠르게 만들 수 있습니다. 코드가 영어처럼 읽혀 Python을 배우는 과정은 즐겁습니다. Whether you are a beginner or an expert, Python offers something for everyone.",
     ]
     
     total_compression = 0
@@ -212,11 +213,11 @@ def eval_tokenizer(tokenizer_dir):
         char_count = len(text)
         compression_ratio = char_count / token_count
         total_compression += compression_ratio
-        print(f"样本 {i+1} | 字符数: {char_count:4} | Tokens: {token_count:3} | 压缩率: {compression_ratio:.2f}")
+        print(f"샘플 {i+1} | 문자 수: {char_count:4} | Tokens: {token_count:3} | 압축률: {compression_ratio:.2f}")
     
-    print(f"平均压缩率: {total_compression / len(test_texts):.2f}")
+    print(f"평균 압축률: {total_compression / len(test_texts):.2f}")
     print('-'*100)
-    print('流式解码（字节缓冲）测试：')
+    print('스트리밍 디코딩(바이트 버퍼) 테스트: ')
     input_ids = model_inputs['input_ids']
     token_cache = []
     for tid in input_ids:

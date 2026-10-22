@@ -32,7 +32,7 @@ class MMVisionProjector(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
-# 继承自语言模型
+# 언어 모델을 상속
 class MiniMindVLM(MiniMindForCausalLM):
     config_class = VLMConfig
 
@@ -53,7 +53,7 @@ class MiniMindVLM(MiniMindForCausalLM):
         except (RuntimeError, ValueError):
             return None, None
         processor = SiglipImageProcessor.from_pretrained(model_path)
-        # 冻结 vision_encoder 的所有参数
+        # vision_encoder의 모든 매개변수를 고정
         for param in model.parameters():
             param.requires_grad = False
         return model.eval(), processor
