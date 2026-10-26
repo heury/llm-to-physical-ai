@@ -16,6 +16,7 @@ import torch
 import torch.nn.functional as F
 import torch.distributed as dist
 from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor
 from torch import optim
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
@@ -37,29 +38,40 @@ def rep_penalty(text, n=3, cap=0.5):
 
 # ======== 도구 정의 ========
 TOOLS = [
-    {"type": "function", "function": {"name": "calculate_math", "description": "수학 표현식 계산", "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}}},
-    {"type": "function", "function": {"name": "unit_converter", "description": "단위 변환", "parameters": {"type": "object", "properties": {"value": {"type": "number"}, "from_unit": {"type": "string"}, "to_unit": {"type": "string"}}, "required": ["value", "from_unit", "to_unit"]}}},
-    {"type": "function", "function": {"name": "get_current_weather", "description": "날씨 조회", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
-    {"type": "function", "function": {"name": "get_current_time", "description": "시간 조회", "parameters": {"type": "object", "properties": {"timezone": {"type": "string", "default": "Asia/Shanghai"}}, "required": []}}},
-    {"type": "function", "function": {"name": "get_exchange_rate", "description": "환율 조회", "parameters": {"type": "object", "properties": {"from_currency": {"type": "string"}, "to_currency": {"type": "string"}}, "required": ["from_currency", "to_currency"]}}},
-    {"type": "function", "function": {"name": "translate_text", "description": "텍스트 번역", "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "target_language": {"type": "string"}}, "required": ["text", "target_language"]}}},
+    {"type": "function", "function": {"name": "calculate_math", "description": "Evaluate a mathematical expression", "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}}},
+    {"type": "function", "function": {"name": "unit_converter", "description": "Convert units", "parameters": {"type": "object", "properties": {"value": {"type": "number"}, "from_unit": {"type": "string"}, "to_unit": {"type": "string"}}, "required": ["value", "from_unit", "to_unit"]}}},
+    {"type": "function", "function": {"name": "get_current_weather", "description": "Get current weather", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "get_current_time", "description": "Get current time", "parameters": {"type": "object", "properties": {"timezone": {"type": "string", "default": "Asia/Shanghai"}}, "required": []}}},
+    {"type": "function", "function": {"name": "get_exchange_rate", "description": "Get exchange rate", "parameters": {"type": "object", "properties": {"from_currency": {"type": "string"}, "to_currency": {"type": "string"}}, "required": ["from_currency", "to_currency"]}}},
+    {"type": "function", "function": {"name": "translate_text", "description": "Translate text", "parameters": {"type": "object", "properties": {"text": {"type": "string"}, "target_language": {"type": "string"}}, "required": ["text", "target_language"]}}},
 ]
 
 # ======== 모의 데이터 ========
-WEATHER_DATA = {"베이징": ("28°C", "맑음"), "상하이": ("15°C", "구름 많음"), "광저우": ("32°C", "무더움"), "선전": ("30°C", "맑음"), "항저우": ("22°C", "흐림"), "청두": ("18°C", "약한 비"), "우한": ("25°C", "구름 많음"), "난징": ("20°C", "맑음"), "시안": ("16°C", "강풍"), "충칭": ("26°C", "흐림"), "Tokyo": ("12°C", "맑음"), "New York": ("8°C", "구름 많음"), "London": ("5°C", "약한 비"), "Paris": ("10°C", "흐림"), "Sydney": ("25°C", "맑음")}
+WEATHER_DATA = {"Beijing": ("28°C", "Clear"), "Shanghai": ("15°C", "Cloudy"), "Guangzhou": ("32°C", "Hot and humid"), "Shenzhen": ("30°C", "Clear"), "Hangzhou": ("22°C", "Overcast"), "Chengdu": ("18°C", "Light rain"), "Wuhan": ("25°C", "Cloudy"), "Nanjing": ("20°C", "Clear"), "Xi'an": ("16°C", "Strong winds"), "Chongqing": ("26°C", "Overcast"), "Tokyo": ("12°C", "Clear"), "New York": ("8°C", "Cloudy"), "London": ("5°C", "Light rain"), "Paris": ("10°C", "Overcast"), "Sydney": ("25°C", "Clear")}
 TIME_DATA = {"Asia/Shanghai": "2025-03-07 14:30:00", "America/New_York": "2025-03-07 01:30:00", "Europe/London": "2025-03-07 06:30:00", "Asia/Tokyo": "2025-03-07 15:30:00", "Europe/Paris": "2025-03-07 07:30:00", "Australia/Sydney": "2025-03-07 17:30:00"}
 EXCHANGE_DATA = {("USD", "CNY"): 7.21, ("EUR", "CNY"): 7.85, ("GBP", "CNY"): 9.12, ("JPY", "CNY"): 0.048, ("USD", "EUR"): 0.92, ("USD", "GBP"): 0.79, ("CNY", "JPY"): 20.83, ("AUD", "CNY"): 4.72}
-TRANSLATE_DATA = {("안녕 세상아", "english"): "Hello World", ("Good morning", "korean"): "좋은 아침", ("오늘 날씨가 정말 좋다", "english"): "The weather is nice today", ("I love programming", "korean"): "나는 프로그래밍을 좋아한다", ("머신러닝은 재미있다", "english"): "Machine learning is interesting", ("Happy birthday", "korean"): "생일 축하해"}
+# TRANSLATE_DATA = {("Hello World", "english"): "Hello World", ("Good morning", "korean"): "Good morning", ("The weather is really nice today", "english"): "The weather is nice today", ("I love programming", "korean"): "I love programming", ("Machine learning is interesting", "english"): "Machine learning is interesting", ("Happy birthday", "korean"): "Happy birthday"}
 UNIT_DATA = {"km_miles": 0.621371, "miles_km": 1.60934, "kg_pounds": 2.20462, "pounds_kg": 0.453592, "meters_feet": 3.28084, "feet_meters": 0.3048, "celsius_fahrenheit": 1.8, "fahrenheit_celsius": 0.5556}
+
+def convert_unit(arguments):
+    value = float(arguments.get('value', 0))
+    pair = f"{arguments.get('from_unit', '').lower()}_{arguments.get('to_unit', '').lower()}"
+    if pair == 'celsius_fahrenheit':
+        result = value * 1.8 + 32
+    elif pair == 'fahrenheit_celsius':
+        result = (value - 32) / 1.8
+    else:
+        result = value * UNIT_DATA.get(pair, 1)
+    return {'result': round(result, 4)}
 
 # ======== 모의 실행 ========
 MOCK_RESULTS = {
     "calculate_math": lambda args: {"result": str(safe_math_eval(args.get("expression", "0")))},
-    "unit_converter": lambda args: {"result": round(float(args.get("value", 0)) * UNIT_DATA.get(f"{args.get('from_unit', '').lower()}_{args.get('to_unit', '').lower()}", 1), 4)},
-    "get_current_weather": lambda args: (lambda w: {"city": args.get("location"), "temperature": w[0], "humidity": "65%", "condition": w[1]})(WEATHER_DATA.get(args.get("location"), ("22°C", "맑음"))),
+    "unit_converter": convert_unit,
+    "get_current_weather": lambda args: (lambda w: {"city": args.get("location"), "temperature": w[0], "humidity": "65%", "condition": w[1]})(WEATHER_DATA.get(args.get("location"), ("22°C", "Clear"))),
     "get_current_time": lambda args: {"datetime": TIME_DATA.get(args.get("timezone", "Asia/Shanghai"), "2025-03-07 14:30:00"), "timezone": args.get("timezone", "Asia/Shanghai")},
     "get_exchange_rate": lambda args: {"from": args.get("from_currency"), "to": args.get("to_currency"), "rate": EXCHANGE_DATA.get((args.get("from_currency"), args.get("to_currency")), 1.0)},
-    "translate_text": lambda args: {"translated_text": TRANSLATE_DATA.get((args.get("text"), args.get("target_language")), args.get("text", ""))},
+    # "translate_text": lambda args: {"translated_text": TRANSLATE_DATA.get((args.get("text"), args.get("target_language")), args.get("text", ""))},
 }
 
 # ======== 매개변수 검증 ========
@@ -76,8 +88,12 @@ CHECK_ARGS = {
 def parse_tool_calls(text):
     calls = []
     for m in re.findall(r'<tool_call>(.*?)</tool_call>', text, re.DOTALL):
-        try: calls.append(json.loads(m.strip()))
-        except: pass
+        try:
+            call = json.loads(m.strip())
+            if isinstance(call, dict) and isinstance(call.get("name"), str) and isinstance(call.get("arguments", {}), (dict, str)):
+                calls.append(call)
+        except (ValueError, TypeError):
+            pass
     return calls
 
 def execute_tool(name, args):
@@ -132,7 +148,7 @@ def rollout_single(rollout_engine, tokenizer, messages, tools, max_turns=3, max_
             if isinstance(raw, str):
                 try: raw = json.loads(raw)
                 except: raw = {}
-            result = execute_tool(name, raw)
+            result = execute_tool(name, raw) if isinstance(raw, dict) else None
             result_str = (json.dumps(result, ensure_ascii=False) if result else '{"error": "tool not found"}')[:2048]  # 매우 큰 숫자가 토크나이저 메모리를 소진하는 것을 방지
             messages.append({"role": "tool", "content": result_str})
 
@@ -156,7 +172,15 @@ def rollout_single(rollout_engine, tokenizer, messages, tools, max_turns=3, max_
     prompt_ids = prompt_ids or []
     return final_output, final_context, prompt_ids, response_ids, response_mask, response_old_logps, list(all_outputs), unfinished
 
-def rollout_batch(rollout_engine, tokenizer, messages_batch, tools_batch, num_gen, max_turns=3, max_new_tokens=256, thinking_ratio=0.5, device="cuda"):
+def rollout_batch(rollout_engine, tokenizer, messages_batch, tools_batch, num_gen, max_turns=3, max_new_tokens=256, thinking_ratio=0.5, device="cuda", workers=1):
+    if workers > 1:
+        jobs = [(messages, tools) for messages, tools in zip(messages_batch, tools_batch) for _ in range(num_gen)]
+        def run(job):
+            messages, tools = job
+            return rollout_single(rollout_engine, tokenizer, [dict(m) for m in messages], tools,
+                                  max_turns, max_new_tokens, thinking_ratio, device)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return tuple(map(list, zip(*pool.map(run, jobs))))
     all_completions = []
     all_contexts = []
     all_prompt_ids = []
@@ -181,9 +205,64 @@ def rollout_batch(rollout_engine, tokenizer, messages_batch, tools_batch, num_ge
 
 # ======== 보상 계산 ========
 def validate_gt_in_text(text, gt_list):
-    text, text_num = str(text), str(text).replace(',', '')
-    nums = [float(x) for x in re.findall(r'(?<![\w.])[-+]?\d+(?:\.\d+)?(?![\w.])', text_num)]
-    return {g for g in gt_list if ((s := str(g).strip()) and s.lower() in text.lower()) or (re.fullmatch(r'[-+]?\d+(?:\.\d+)?', str(g).strip().replace(',', '')) and any(abs(float(str(g).strip().replace(',', '')) - n) < 1e-6 for n in nums))}
+    text = str(text)
+    text_num = text.replace(',', '')
+    nums = [float(x) for x in re.findall(r'(?<![\w.])[-+]?\d+(?:\.\d+)?(?!\w|\.\d)', text_num)]
+    matched = set()
+    for gt in gt_list:
+        value = str(gt).strip()
+        numeric = value.replace(',', '')
+        if re.fullmatch(r'[-+]?\d+(?:\.\d+)?', numeric):
+            if any(abs(float(numeric) - number) < 1e-6 for number in nums):
+                matched.add(gt)
+        elif value and value.lower() in text.lower():
+            matched.add(gt)
+    return matched
+
+
+def tool_task_reward(turns, calls, tools, gt, unfinished):
+    """Score labeled tool tasks by successful execution and final answer agreement."""
+    attempts = sum(max(t.count('<tool_call>'), t.count('</tool_call>')) for t in turns)
+    if attempts != len(calls):
+        return -1.5  # malformed JSON/tags must not fall back to generic text reward
+    if not calls:
+        return -1.0
+    schemas = {t['function']['name']: t['function'] for t in tools}
+    results = []
+    for call in calls:
+        name, args = call['name'], call.get('arguments', {})
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (ValueError, TypeError):
+                return -1.5
+        schema = schemas.get(name)
+        if not schema or not isinstance(args, dict):
+            return -1.5
+        parameters = schema.get('parameters', {})
+        if any(key not in args for key in parameters.get('required', [])):
+            return -1.5
+        for key, value in args.items():
+            kind = parameters.get('properties', {}).get(key, {}).get('type')
+            if kind == 'string' and not isinstance(value, str):
+                return -1.5
+            if kind == 'number' and (type(value) not in (int, float) or not math.isfinite(value)):
+                return -1.5
+        check = CHECK_ARGS.get(name)
+        if not check or not check(args):
+            return -1.5
+        result = execute_tool(name, args)
+        if result is None:
+            return -1.5
+        results.append(json.dumps(result, ensure_ascii=False))
+    if unfinished:
+        return -0.5
+    final_text = turns[-1].split('</tool_call>')[-1].strip() if turns else ''
+    matched = validate_gt_in_text(final_text, gt) & validate_gt_in_text('\n'.join(results), gt)
+    fraction = len(matched) / len(set(gt)) if gt else 0.0
+    score = 0.5 + 2.5 * fraction if matched else -0.5
+    return max(-3.0, score - rep_penalty(final_text))
+
 
 def calculate_rewards(prompts, completions, gt_batch, tools_batch, num_gen, reward_model=None, device="cuda", turn_outputs_batch=None, unfinished_batch=None):
     rewards = torch.zeros(len(completions), device=device)
@@ -198,6 +277,11 @@ def calculate_rewards(prompts, completions, gt_batch, tools_batch, num_gen, rewa
         valid_names = {t['function']['name'] for t in tools} if tools else set()
         tool_calls = []
         for turn_answer in turn_answers: tool_calls.extend(parse_tool_calls(turn_answer))  # 도구 호출 파싱
+        # In agent_rl_en, tools plus nonempty gt identifies a labeled tool task.
+        # Merely exposing tools does not require calling them on general dialogue.
+        if tools and gt_batch[sample_idx]:
+            rewards[idx] = tool_task_reward(turn_answers, tool_calls, tools, gt_batch[sample_idx], unfinished)
+            continue
         reward -= 0.5 * sum(abs(turn.count('<tool_call>') - turn.count('</tool_call>')) for turn in turn_answers)  # 태그 불일치 감점
         # -------- 도구 호출 없음: 형식 및 보상 모델 점수 --------
         if not tool_calls:
@@ -226,7 +310,7 @@ def calculate_rewards(prompts, completions, gt_batch, tools_batch, num_gen, rewa
                     try: raw = json.loads(raw)
                     except: raw = {}
                 check = CHECK_ARGS.get(name)
-                valid_call_count += int(bool(name in valid_names and check and check(raw)))
+                valid_call_count += int(bool(isinstance(raw, dict) and name in valid_names and check and check(raw)))
             tool_gap = abs(valid_call_count - len(gt)) + max(0, len(tool_calls) - valid_call_count)  # 도구 호출 수 차이
             reward += 0.5 if tool_gap == 0 else -0.5 * tool_gap  # 도구 호출 일치 점수
             
@@ -239,6 +323,46 @@ def calculate_rewards(prompts, completions, gt_batch, tools_batch, num_gen, rewa
     return rewards
 
 # ================================ 도구 및 Reward = End ================================
+def backward_policy_microbatches(model, ref_model, input_ids, full_mask, completion_mask,
+                                old_logps, advantages, args, lm_config, autocast_ctx):
+    """Accumulate the same global response-mean objective with bounded activation memory."""
+    count = input_ids.size(0)
+    size = args.train_microbatch_size or count
+    valid_count = (completion_mask.sum(1) > 0).sum().clamp(min=1)
+    total_loss, kl_sum = 0.0, 0.0
+    for start in range(0, count, size):
+        stop = min(start + size, count)
+        length = int(full_mask[start:stop].sum(1).max().item())
+        ids = input_ids[start:stop, :length]
+        attention = full_mask[start:stop, :length]
+        mask = completion_mask[start:stop, :length-1]
+        with autocast_ctx:
+            result = model(ids, attention_mask=attention)
+            aux = result.aux_loss if lm_config.use_moe else ids.new_tensor(0.0, dtype=torch.float32)
+            logps = F.log_softmax(result.logits[:, :-1], dim=-1).gather(2, ids[:, 1:].unsqueeze(-1)).squeeze(-1)
+        with torch.no_grad():
+            ref_logps = compute_per_token_logps(ref_model, ids, length-1, attention_mask=attention)
+        delta = ref_logps - logps
+        kl = torch.exp(delta) - delta - 1
+        ratio = torch.exp(logps - old_logps[start:stop, :length-1])
+        advantage = advantages[start:stop].unsqueeze(1)
+        if args.loss_type == 'cispo':
+            per_token_loss = -(torch.clamp(ratio, max=args.epsilon_high).detach() * advantage * logps - args.beta * kl)
+        else:
+            clipped = torch.clamp(ratio, 1-args.epsilon, 1+args.epsilon)
+            per_token_loss = -(torch.min(ratio * advantage, clipped * advantage) - args.beta * kl)
+        tokens = mask.sum(1)
+        valid = tokens > 0
+        policy_loss = ((per_token_loss * mask).sum(1)[valid] / tokens[valid].clamp(min=1)).sum() / valid_count
+        loss = (policy_loss + aux * ((stop-start)/count)) / args.accumulation_steps
+        if not torch.isfinite(loss):
+            raise FloatingPointError('Non-finite policy loss')
+        loss.backward()
+        total_loss += loss.detach().item() * args.accumulation_steps
+        kl_sum += (delta.detach() * mask).sum().item()
+    return total_loss, kl_sum / max(completion_mask.sum().item(), 1)
+
+
 def rl_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model=None, start_step=0, wandb=None, use_sglang=False):
     for step, batch in enumerate(loader, start=start_step + 1):
         messages_batch = batch['messages']
@@ -246,7 +370,7 @@ def rl_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model
         gt_batch = batch['gt']
 
         with torch.no_grad():
-            completions, contexts, prompt_ids_batch, response_ids_batch, response_masks_batch, response_old_logps_batch, turn_outputs_batch, unfinished_batch = rollout_batch(rollout_engine, tokenizer, messages_batch, tools_batch, args.num_generations, max_turns=3, max_new_tokens=args.max_gen_len, thinking_ratio=args.thinking_ratio, device=args.device)
+            completions, contexts, prompt_ids_batch, response_ids_batch, response_masks_batch, response_old_logps_batch, turn_outputs_batch, unfinished_batch = rollout_batch(rollout_engine, tokenizer, messages_batch, tools_batch, args.num_generations, max_turns=3, max_new_tokens=args.max_gen_len, thinking_ratio=args.thinking_ratio, device=args.device, workers=args.rollout_workers)
 
         prompts = [tokenizer.apply_chat_template(m, tokenize=False, add_generation_prompt=True, tools=t) for m, t in zip(messages_batch, tools_batch)]
         packed_samples = []
@@ -269,15 +393,6 @@ def rl_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model
         full_mask = (torch.arange(max_len, device=args.device).unsqueeze(0) < seq_lens.unsqueeze(1)).long()
 
         rewards = calculate_rewards(prompts, completions, gt_batch, tools_batch, args.num_generations, reward_model, device=args.device, turn_outputs_batch=turn_outputs_batch, unfinished_batch=unfinished_batch)
-
-        with autocast_ctx:
-            res = model(input_ids, attention_mask=full_mask)
-            aux_loss = res.aux_loss if lm_config.use_moe else torch.tensor(0.0, device=args.device)
-            logits = res.logits[:, :-1, :]
-            per_token_logps = F.log_softmax(logits, dim=-1).gather(2, input_ids[:, 1:].unsqueeze(-1)).squeeze(-1)
-
-        with torch.no_grad():
-            ref_per_token_logps = compute_per_token_logps(ref_model, input_ids, input_ids.size(1) - 1, attention_mask=full_mask)
 
         completion_mask = full_response_masks[:, 1:]
         is_eos = (input_ids[:, 1:] == tokenizer.eos_token_id) & completion_mask.bool()
@@ -313,31 +428,18 @@ def rl_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model
         std_r = grouped_rewards.std(dim=1, unbiased=False).repeat_interleave(args.num_generations)
         advantages = (rewards - mean_r) / (std_r + 1e-4)
 
-        kl_div = ref_per_token_logps - per_token_logps
-        per_token_kl = torch.exp(kl_div) - kl_div - 1
-        ratio = torch.exp(per_token_logps - old_per_token_logps)
-        if args.loss_type == "cispo":
-            clamped_ratio = torch.clamp(ratio, max=args.epsilon_high).detach()
-            per_token_loss = -(clamped_ratio * advantages.unsqueeze(1) * per_token_logps - args.beta * per_token_kl)
-        else:
-            clipped_ratio = torch.clamp(ratio, 1 - args.epsilon, 1 + args.epsilon)
-            per_token_loss1 = ratio * advantages.unsqueeze(1)
-            per_token_loss2 = clipped_ratio * advantages.unsqueeze(1)
-            per_token_loss = -(torch.min(per_token_loss1, per_token_loss2) - args.beta * per_token_kl)
-        policy_loss = (((per_token_loss * completion_mask).sum(dim=1)[valid_rows] / token_counts[valid_rows].clamp(min=1)).mean()
-                       if valid_rows.any() else per_token_loss.sum() * 0.0)
-        loss = (policy_loss + aux_loss) / args.accumulation_steps
-        loss.backward()
+        loss_value, kl_value = backward_policy_microbatches(model, ref_model, input_ids, full_mask,
+            completion_mask, old_per_token_logps, advantages, args, lm_config, autocast_ctx)
 
         if step % args.accumulation_steps == 0 or step == iters:
-            if args.grad_clip > 0: torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            if args.grad_clip > 0: torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip, error_if_nonfinite=True)
             optimizer.step(); scheduler.step(); optimizer.zero_grad()
 
         if step % args.log_interval == 0 or step == iters:
-            pl = loss.item() * args.accumulation_steps
+            pl = loss_value
             ar = rewards.mean().item()
             al = token_counts.float().mean().item()
-            kl = ((ref_per_token_logps - per_token_logps) * completion_mask).sum().item() / max(token_counts.sum().item(), 1)
+            kl = kl_value
             gs = grouped_rewards.std(dim=1, unbiased=False).mean().item()
             am, ast = advantages.mean().item(), advantages.std().item()
             lr = optimizer.param_groups[0]['lr']
@@ -358,9 +460,8 @@ def rl_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model
             model.train()
             del state_dict
 
-        if step % args.save_interval == 0 or step == iters: rollout_engine.update_policy(model)
+        if step % (args.policy_update_interval or args.save_interval) == 0 or step == iters: rollout_engine.update_policy(model)
 
-        del per_token_logps, ref_per_token_logps
         del completions, rewards, grouped_rewards, mean_r, std_r, advantages, completion_mask
 
 
@@ -378,6 +479,7 @@ if __name__ == "__main__":
     parser.add_argument("--grad_clip", type=float, default=1.0, help="기울기 클리핑 임계값")
     parser.add_argument("--log_interval", type=int, default=1, help="로그 출력 간격")
     parser.add_argument("--save_interval", type=int, default=10, help="모델 저장 간격")
+    parser.add_argument("--policy_update_interval", type=int, default=0, help="Rollout 가중치 갱신 간격(0이면 저장 간격 사용)")
     parser.add_argument('--hidden_size', default=768, type=int, help="모델 은닉층 차원")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="모델 층 수")
     parser.add_argument('--use_moe', default=0, type=int, choices=[0, 1], help="MoE 사용 여부")
@@ -393,17 +495,24 @@ if __name__ == "__main__":
     parser.add_argument('--from_weight', default='full_sft', type=str, help="불러올 사전 학습 가중치 이름")
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="체크포인트에서 복원할지 여부")
     parser.add_argument("--use_wandb", action="store_true", help="wandb 기록 사용 여부")
+    parser.add_argument("--wandb_mode", default="online", choices=["online", "offline", "disabled"])
     parser.add_argument("--wandb_project", type=str, default="MiniMind-Agent-RL", help="wandb 프로젝트 이름")
     parser.add_argument("--use_compile", default=0, type=int, choices=[0, 1], help="torch.compile 사용 여부")
     parser.add_argument("--debug_mode", action="store_true", help="디버그 모드")
     parser.add_argument("--debug_interval", type=int, default=20, help="디버그 로그 간격")
     parser.add_argument("--thinking_ratio", type=float, default=0.1, help="확률에 따라 사고 모드 활성화(0.0~1.0)")
-    parser.add_argument("--reward_model_path", type=str, default="../../internlm2-1_8b-reward", help="보상 모델 경로")
+    parser.add_argument("--reward_model_path", type=str, default="Skywork/Skywork-Reward-V2-Qwen3-1.7B", help="보상 모델 경로")
+    parser.add_argument("--reward_score_scale", type=float, default=10.0, help="원시 보상을 이 값으로 나눈 뒤 [-3,3] 클리핑")
     parser.add_argument("--rollout_engine", type=str, default="torch", choices=["torch", "sglang"], help="rollout 엔진 유형")
+    parser.add_argument("--rollout_workers", type=int, default=1, help="SGLang rollout 동시 요청 수")
+    parser.add_argument("--train_microbatch_size", type=int, default=0, help="역전파를 나눌 응답 수(0이면 전체)")
+    parser.add_argument("--tokenizer_path", default="../model")
     parser.add_argument("--sglang_base_url", type=str, default="http://localhost:8998", help="SGLang 서버 URL")
     parser.add_argument("--sglang_model_path", type=str, default="../model", help="SGLang 토크나이저 경로")
     parser.add_argument("--sglang_shared_path", type=str, default="./sglang_ckpt_agent", help="SGLang 공유 저장소 경로")
     args = parser.parse_args()
+    if args.rollout_workers > 1 and args.rollout_engine != 'sglang':
+        parser.error('--rollout_workers > 1 requires the sglang engine')
 
     local_rank = init_distributed_mode()
     if dist.is_initialized(): args.device = f"cuda:{local_rank}"
@@ -420,17 +529,17 @@ if __name__ == "__main__":
 
     wandb = None
     if args.use_wandb and is_main_process():
-        import swanlab as wandb
+        import wandb
         wandb_id = ckp_data.get('wandb_id') if ckp_data else None
         resume = 'must' if wandb_id else None
-        wandb.init(project=args.wandb_project, name=f"Agent-RL-E{args.epochs}-B{args.batch_size}-LR{args.learning_rate}", id=wandb_id, resume=resume)
+        wandb = wandb.init(project=args.wandb_project, name=f"Agent-RL-E{args.epochs}-B{args.batch_size}-LR{args.learning_rate}", id=wandb_id, resume=resume, mode=args.wandb_mode, config=vars(args))
 
-    model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
+    model, tokenizer = init_model(lm_config, args.from_weight, tokenizer_path=args.tokenizer_path, save_dir=args.save_dir, device=args.device)
 
-    ref_model, _ = init_model(lm_config, args.from_weight, device=args.device)
+    ref_model, _ = init_model(lm_config, args.from_weight, tokenizer_path=args.tokenizer_path, save_dir=args.save_dir, device=args.device)
     ref_model = ref_model.eval().requires_grad_(False)
 
-    reward_model = LMForRewardModel(args.reward_model_path, device=args.device, dtype=torch.float16)
+    reward_model = LMForRewardModel(args.reward_model_path, device=args.device, dtype=dtype, score_scale=args.reward_score_scale)
     Logger(f'Loaded reward model from {args.reward_model_path}')
     # Rollout 엔진
     rollout_engine = create_rollout_engine(
@@ -480,6 +589,8 @@ if __name__ == "__main__":
         else:
             rl_train_epoch(epoch, loader, len(loader), rollout_engine, ref_model, reward_model, 0, wandb, use_sglang = (args.rollout_engine == "sglang"))
 
+    if wandb:
+        wandb.finish()
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()

@@ -1,0 +1,14 @@
+{
+  "student": {
+    "repo": "caspar/MiniMind-Dense-64M-Mixed-SFT-v1.0",
+    "revision": "7597c22aa4d3e7b2ac824b4b4be01158cccf1b8d"
+  },
+  "teacher": {
+    "repo": "caspar/MiniMind-MoE-198M-A64M-Mixed-SFT-v1.0",
+    "revision": "a742772a0ad4db7480064bd2abccc174062a3de8"
+  },
+  "dataset": {
+    "repo": "caspar/MiniMind-Mixed-SFT-Training-v1.0",
+    "revision": "542384d27d374d668413d8ade5b9973b7b063bee"
+  }
+}

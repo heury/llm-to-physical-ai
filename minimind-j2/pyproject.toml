@@ -1,0 +1,9 @@
+[project]
+name = "minimind-j2"
+version = "0.1.0"
+description = "MiniMind Jev: LM-head-only multiple-choice learning and calibration"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.6,<3", "transformers>=4.57.6,<5", "jinja2>=3.1", "datasets>=3,<6"]
+
+[tool.uv]
+package = false

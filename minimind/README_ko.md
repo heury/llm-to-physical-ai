@@ -63,7 +63,8 @@ MiniMind는 약 64M개의 매개변수를 가진 작은 언어 모델을 처음�
 ```bash
 git clone --depth 1 https://github.com/jingyaogong/minimind
 cd minimind
-pip install -r requirements.txt
+uv sync --locked
+source .venv/bin/activate
 ```
 
 GPU를 사용할 수 있는지 확인합니다.

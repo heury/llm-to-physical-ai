@@ -22,6 +22,8 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from transformers import AutoModel
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from dataset.lm_dataset import RLAIFDataset
+from dataset.gsm8k_dataset import GSM8KDataset
+from trainer.gsm8k_reward import score_gsm8k_response
 from trainer.trainer_utils import Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, SkipBatchSampler, init_model, LMForRewardModel
 from trainer.rollout_engine import create_rollout_engine
 
@@ -68,11 +70,34 @@ def calculate_rewards(prompts, responses, reward_model):
     return rewards
 
 
+def calculate_gsm8k_rewards_and_stats(rollout_result, answers, num_generations, eos_token_id, max_gen_len, device):
+    """Return GSM8K rewards and rollout diagnostics for prompt-major completions."""
+    completions = rollout_result.completions
+    completion_ids = rollout_result.completion_ids
+    if len(completions) != len(answers) * num_generations:
+        raise ValueError('Rollout/gold batch alignment mismatch')
+    scored = [score_gsm8k_response(text, answers[i // num_generations])
+              for i, text in enumerate(completions)]
+    rewards = torch.tensor([value for value, reason in scored], dtype=torch.float32, device=device)
+    reward_stats = {f'reward/{reason}_rate': sum(r == reason for _, r in scored) / len(scored)
+                    for reason in ('correct', 'wrong_number', 'format_error')}
+    valid = rollout_result.completion_mask.to(completion_ids.device).bool()
+    ended = ((completion_ids == eos_token_id) & valid).any(dim=1)
+    # Diagnostic only: max-token termination does not independently change reward.
+    exhausted = ~ended & (valid.sum(dim=1) >= max_gen_len)
+    reward_stats['reward/token_budget_exhausted_rate'] = exhausted.float().mean().item()
+    groups = rewards.view(-1, num_generations)
+    reward_stats['reward/mixed_group_rate'] = (groups.max(1).values != groups.min(1).values).float().mean().item()
+    return rewards, reward_stats
+
+
 def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_model, start_step=0, wandb=None, use_sglang=False):
     for step, batch in enumerate(loader, start=start_step + 1):
         prompts = batch['prompt']  # list[str], length B
         prompt_inputs = tokenizer(prompts, return_tensors="pt", padding=True, return_token_type_ids=False,
                                   padding_side="left", add_special_tokens=False).to(args.device)
+        if args.reward_type == "gsm8k" and args.max_seq_len and prompt_inputs["input_ids"].size(1) > args.max_seq_len:
+            raise ValueError("GSM8K questions must not be truncated")
         if args.max_seq_len:
             prompt_inputs["input_ids"] = prompt_inputs["input_ids"][:, -args.max_seq_len:]
             prompt_inputs["attention_mask"] = prompt_inputs["attention_mask"][:, -args.max_seq_len:]
@@ -93,7 +118,14 @@ def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_mod
         logp_pos = prompt_lens.unsqueeze(1) - 1 + torch.arange(completion_ids.size(1), device=args.device).unsqueeze(0)
         full_mask.scatter_(1, logp_pos + 1, rollout_result.completion_mask.to(args.device, dtype=full_mask.dtype))
 
-        rewards = calculate_rewards(prompts, completions, reward_model).to(args.device)  # [B*num_gen]
+        reward_stats = {}
+        if args.reward_type == 'gsm8k':
+            rewards, reward_stats = calculate_gsm8k_rewards_and_stats(
+                rollout_result, batch['answer'], args.num_generations,
+                tokenizer.eos_token_id, args.max_gen_len, args.device,
+            )
+        else:
+            rewards = calculate_rewards(prompts, completions, reward_model).to(args.device)
 
         with autocast_ctx:
             res = model(outputs, attention_mask=full_mask)
@@ -166,8 +198,12 @@ def grpo_train_epoch(epoch, loader, iters, rollout_engine, ref_model, reward_mod
                    f'Adv Std: {advantages_std_val:.4f}, Adv Mean: {advantages_mean_val:.4f}, '
                    f'Actor Loss: {policy_loss_val:.4f}, Avg Response Len: {avg_len_val:.2f}, Learning Rate: {current_lr:.8f}')
 
+            if reward_stats:
+                Logger(f"GSM8K diagnostics: {reward_stats}")
+
             if wandb and is_main_process():
                 wandb.log({
+                    **reward_stats,
                     "reward": avg_reward_val,
                     "kl_ref": kl_ref_val,
                     "advantages_std": advantages_std_val,
@@ -234,7 +270,11 @@ if __name__ == "__main__":
     parser.add_argument("--sglang_base_url", type=str, default="http://localhost:8998", help="SGLang 서버 URL")
     parser.add_argument("--sglang_model_path", type=str, default="../model", help="SGLang 토크나이저 경로")
     parser.add_argument("--sglang_shared_path", type=str, default="./sglang_ckpt_grpo", help="SGLang 공유 저장소 경로")
+    parser.add_argument('--reward_type', choices=['model', 'gsm8k'], default='model')
+    parser.add_argument('--dataset_revision', default=None, help='Pinned Hugging Face dataset revision')
     args = parser.parse_args()
+    if args.reward_type == 'gsm8k' and args.num_generations < 2:
+        parser.error('GSM8K GRPO requires at least two generations per question')
 
     # ========== 1. 환경 및 난수 시드 초기화 ==========
     local_rank = init_distributed_mode()
@@ -269,7 +309,8 @@ if __name__ == "__main__":
     ref_model, _ = init_model(lm_config, base_weight, device=args.device)
     ref_model = ref_model.eval().requires_grad_(False)
     # 보상 모델
-    reward_model = LMForRewardModel(args.reward_model_path, device=args.device, dtype=torch.float16)
+    reward_model = (LMForRewardModel(args.reward_model_path, device=args.device, dtype=torch.float16)
+                    if args.reward_type == "model" else None)
     # Rollout 엔진(교체 가능하며 정책 추론만 담당)
     rollout_engine = create_rollout_engine(
         engine_type=args.rollout_engine,
@@ -282,7 +323,9 @@ if __name__ == "__main__":
         sglang_shared_path=args.sglang_shared_path,
     )
     # 데이터 및 옵티마이저
-    train_ds = RLAIFDataset(args.data_path, tokenizer, max_length=lm_config.max_seq_len, thinking_ratio=args.thinking_ratio)
+    train_ds = (GSM8KDataset(args.data_path, tokenizer, max_length=args.max_seq_len, revision=args.dataset_revision)
+                if args.reward_type == 'gsm8k' else
+                RLAIFDataset(args.data_path, tokenizer, max_length=lm_config.max_seq_len, thinking_ratio=args.thinking_ratio))
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     loader_for_count = DataLoader(train_ds, batch_size=args.batch_size, sampler=train_sampler)

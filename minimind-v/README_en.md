@@ -156,7 +156,8 @@ Is the training process difficult? Now, let's explore the answers and feel the j
 # Clone the repository
 git clone --depth 1 https://github.com/jingyaogong/minimind-v
 # Install dependencies
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+uv sync --locked
+source .venv/bin/activate
 ```
 
 ### 2' Download resources

@@ -14,7 +14,7 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import Sampler
-from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification, AutoConfig
 from model.model_minimind import MiniMindForCausalLM
 
 def get_model_params(model, config):
@@ -160,23 +160,48 @@ class SkipBatchSampler(Sampler):
 
 
 class LMForRewardModel:
-    def __init__(self, model_path, device="cuda", dtype=torch.float16):
+    def __init__(self, model_path, device="cuda", dtype=torch.float16, score_scale=1.0):
+        if score_scale <= 0:
+            raise ValueError('Reward score scale must be positive')
+        self.score_scale = score_scale
+        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        self.sequence_classifier = any('ForSequenceClassification' in name for name in (config.architectures or []))
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        self.model = AutoModel.from_pretrained(model_path, torch_dtype=dtype, trust_remote_code=True)
-        self.model = self.model.to(device).eval()
+        model_class = AutoModelForSequenceClassification if self.sequence_classifier else AutoModel
+        options = {'attn_implementation': 'sdpa'} if self.sequence_classifier else {}
+        self.model = model_class.from_pretrained(model_path, config=config, torch_dtype=dtype, trust_remote_code=True, **options)
+        self.model = self.model.to(device).eval().requires_grad_(False)
         self.device = device
 
     @torch.no_grad()
     def get_score(self, messages, response):
+        if self.sequence_classifier:
+            # Skywork recommends conversation scoring without system messages.
+            conversation = [{'role': m['role'], 'content': m['content']} for m in messages
+                            if m['role'] in ('user', 'assistant')]
+            if not conversation:
+                conversation = [{'role': 'user', 'content': ''}]
+            conversation.append({'role': 'assistant', 'content': response})
+            text = self.tokenizer.apply_chat_template(conversation, tokenize=False, add_generation_prompt=False)
+            inputs = self.tokenizer(text, return_tensors='pt', add_special_tokens=False,
+                                    truncation=True, max_length=16384).to(self.device)
+            logits = self.model(**inputs, use_cache=False).logits
+            if logits.numel() != 1:
+                raise ValueError('Reward model must return one scalar per conversation')
+            score = logits.float().item()
+            if not math.isfinite(score):
+                raise FloatingPointError('Reward model returned a non-finite score')
+            self.last_raw_score = score
+            return max(min(score / self.score_scale, 3.0), -3.0)
         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in messages[:-1]])
         last_query = messages[-1]['content'] if messages else ""
-        message_context = f"{history_text}\n위는 이전 대화입니다. 새로운 질문은 다음과 같습니다:\n{last_query}" if history_text else last_query
+        message_context = f"{history_text}\nThe above is the previous conversation. The new question is:\n{last_query}" if history_text else last_query
         eval_messages = [
             {"role": "user", "content": message_context},
             {"role": "assistant", "content": response}
         ]
         score = self.model.get_score(self.tokenizer, eval_messages)
-        return max(min(score, 3.0), -3.0)
+        return max(min(score / self.score_scale, 3.0), -3.0)
 
 
 # ===== 수학 표현식 안전 평가: eval을 대신하며 산술 연산과 math 허용 목록만 지원(최대 길이 512) =====

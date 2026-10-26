@@ -54,13 +54,12 @@ MiniMind-V의 `google/siglip2-base-patch32-256` 가중치와 processor를 담은
 
 ## CPU 실행 예제
 
-Python 3.11 환경에서:
+Python 3.12.15와 uv를 사용합니다:
 
 ```bash
 cd minimind-a
-python3 -m venv .venv
+uv sync --locked
 source .venv/bin/activate
-pip install -r requirements-dev.txt
 
 python scripts/make_toy_data.py --output data/siglip_smoke --count 8
 python train_vla.py --data data/siglip_smoke/train.jsonl \
@@ -233,3 +232,42 @@ CPU 테스트는 `python -m pytest -q`로 실행합니다. 테스트는 작은 *
 무작위 VLM 학습 및 사전학습 VLM 고정 학습의 저장·복원도 검사합니다.
 
 Apache-2.0. 원본 파일 출처는 [NOTICE](NOTICE), [docs/provenance.json](docs/provenance.json)을 참고하세요.
+
+
+## uv 환경
+
+각 모델 디렉토리는 독립 uv 프로젝트입니다. Python은 `.python-version`에
+3.12.15로 고정하고, 의존성은 `pyproject.toml`과 `uv.lock`으로 관리합니다.
+
+```bash
+cd minimind-a
+uv sync --locked
+source .venv/bin/activate
+# 또는 uv run python <스크립트>로 실행
+```
+
+`uv sync`는 Python 3.12.15가 없으면 다운로드를 시도합니다. 사용 중인 uv가
+해당 버전 다운로드를 지원하지 않으면 uv를 업데이트하거나 Python 3.12.15를
+설치한 뒤 `uv sync --python /path/to/python3.12 --locked`를 실행하세요.
+기존 `requirements*.txt`는 이전 pip 실행 환경을 위한 참고 자료이며,
+uv 환경의 의존성을 변경할 때는 `uv add` / `uv remove`를 사용하세요.
+
+테스트 도구는 기본 설치되는 `dev` 그룹에 있습니다: `uv run python -m pytest -q`.
+
+
+### 의존성 업데이트
+
+일반 패키지는 버전 고정을 제거했습니다. 모델 API 호환성을 위해
+`transformers>=4.57.6,<5`, `torch>=2.6,<3` 범위는 유지합니다.
+
+`uv.lock`은 설치 버전을 고정합니다. `uv sync --locked`는 최신 버전을
+조회하는 명령이 아닙니다. 허용 범위 내 최신 버전으로 갱신하려면 이
+프로젝트 디렉토리에서 다음을 실행하고 테스트를 다시 확인하세요.
+
+```bash
+uv lock --upgrade
+uv sync --locked
+```
+
+Python 3.12.15 고정은 유지합니다. torch와 관련 vision/audio 패키지는
+의존성 해결기가 선택한 조합을 잠금 파일에 함께 기록합니다.

@@ -1,0 +1,33 @@
+[project]
+name = "minimind-o"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "datasets",
+    "soundfile",
+    "librosa",
+    "pyarrow",
+    "snac",
+    # Keep the existing Transformers 4 model/generation API.
+    "transformers>=4.57.6,<5",
+    "speechbrain",
+    "onnxruntime",
+    "funasr",
+    "addict",
+    "flask",
+    "flask-cors",
+    "flask-sock",
+    # Existing demos use Chatbot(type=...) and Blocks(css=..., js=...).
+    "gradio>=5.49.1,<6",
+    "pydub",
+    "numpy",
+    "Pillow",
+    "swanlab",
+    "modelscope",
+    "torch>=2.6,<3",
+    "torchvision",
+    "torchaudio",
+]
+
+[tool.uv]
+package = false

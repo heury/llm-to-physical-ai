@@ -122,7 +122,8 @@ MiniMind-O 尝试补上已知的空位：让语音和文本在 hidden state 层�
 # 克隆仓库代码
 git clone --depth 1 https://github.com/jingyaogong/minimind-o
 # 安装必要依赖
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+uv sync --locked
+source .venv/bin/activate
 ```
 
 ### 2' 下载资源
@@ -669,3 +670,42 @@ https://github.com/user-attachments/assets/3e8d0a76-282d-4a9d-9726-a954cf80198a
 # 📜 许可协议
 
 本仓库遵循 [Apache-2.0 License](LICENSE) 开源协议。
+
+
+## uv 환경
+
+각 모델 디렉토리는 독립 uv 프로젝트입니다. Python은 `.python-version`에
+3.12.15로 고정하고, 의존성은 `pyproject.toml`과 `uv.lock`으로 관리합니다.
+
+```bash
+cd minimind-o
+uv sync --locked
+source .venv/bin/activate
+# 또는 uv run python <스크립트>로 실행
+```
+
+`uv sync`는 Python 3.12.15가 없으면 다운로드를 시도합니다. 사용 중인 uv가
+해당 버전 다운로드를 지원하지 않으면 uv를 업데이트하거나 Python 3.12.15를
+설치한 뒤 `uv sync --python /path/to/python3.12 --locked`를 실행하세요.
+기존 `requirements*.txt`는 이전 pip 실행 환경을 위한 참고 자료이며,
+uv 환경의 의존성을 변경할 때는 `uv add` / `uv remove`를 사용하세요.
+
+
+
+### 의존성 업데이트
+
+일반 패키지는 버전 고정을 제거했습니다. 모델 API 호환성을 위해
+`transformers>=4.57.6,<5`, `torch>=2.6,<3` 범위는 유지합니다.
+Gradio 6에서는 기존 `Chatbot(type=...)` 호출이 실패하므로 `>=5.49.1,<6`으로 제한합니다.
+
+`uv.lock`은 설치 버전을 고정합니다. `uv sync --locked`는 최신 버전을
+조회하는 명령이 아닙니다. 허용 범위 내 최신 버전으로 갱신하려면 이
+프로젝트 디렉토리에서 다음을 실행하고 테스트를 다시 확인하세요.
+
+```bash
+uv lock --upgrade
+uv sync --locked
+```
+
+Python 3.12.15 고정은 유지합니다. torch와 관련 vision/audio 패키지는
+의존성 해결기가 선택한 조합을 잠금 파일에 함께 기록합니다.

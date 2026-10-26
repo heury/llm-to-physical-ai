@@ -196,14 +196,9 @@ def eval_tokenizer(tokenizer_dir):
     print('-'*100)
     print('압축률 테스트(문자 수/토큰 수): ')
     test_texts = [
-        # 한국어로 번역한 샘플
-        "인공지능은 지능의 본질을 이해하고 인간의 지능과 유사하게 반응하는 기계를 만들려는 컴퓨터 과학의 한 분야입니다. 로봇, 음성 인식, 이미지 인식, 자연어 처리와 전문가 시스템 등을 연구합니다. 인공지능이 등장한 이후 이론과 기술은 점차 발전했고 응용 분야도 계속 확대되었습니다. 앞으로 인공지능을 활용한 기술 제품은 인간 지혜를 담는 그릇이 될 수 있습니다. 인공지능은 인간의 의식과 사고에서 이루어지는 정보 처리를 모방할 수 있습니다. 인간의 지능 자체는 아니지만 사람처럼 사고하고 인간의 지능을 뛰어넘을 수도 있습니다.",
-        "성간 항해는 은하 내부 또는 은하 사이의 우주 공간을 이동하는 항해를 뜻합니다. 우주는 매우 넓어 기존의 화학 로켓으로 별 사이를 여행하기에는 한계가 있습니다. 과학자들은 이온 추진기, 핵열 로켓, 반물질을 에너지원으로 사용하는 구상 등 다양한 방안을 제안했습니다. 워프 드라이브와 웜홀 여행 같은 공상과학 개념도 이론물리학에서 반복적으로 논의됩니다. 현재 인간이 직접 도달한 곳은 달까지이지만, 핵융합 기술과 재료 과학이 발전하면 화성과 더 먼 태양계 가장자리까지 갈 수 있을 것입니다.",
         # 영어 샘플(약 200단어/자)
         "Large language models (LLMs) are a type of artificial intelligence (AI) trained on vast amounts of text data to understand and generate human-like language. These models use deep learning techniques, specifically transformers, to process and predict the next word in a sequence. LLMs like GPT-4, Llama, and Claude have demonstrated remarkable capabilities in coding, translation, and creative writing. However, they also face challenges such as hallucinations, where the model generates factually incorrect information, and the need for significant computational resources.",
         "The development of sustainable energy is crucial for the future of our planet. As climate change continues to impact global weather patterns, transitioning from fossil fuels to renewable sources like solar, wind, and hydroelectric power has become an urgent priority. Innovations in battery storage technology and smart grid management are essential to ensure a reliable energy supply. International cooperation and policy frameworks are also necessary to drive the global shift towards a greener economy and reduce carbon emissions.",
-        # 혼합 샘플
-        "Python은 간결한 문법과 강력한 생태계로 유명한 고급 프로그래밍 언어입니다. It is widely used in data science, machine learning, and web development. 개발자는 NumPy, Pandas, and PyTorch 등의 라이브러리로 복잡한 응용 프로그램을 빠르게 만들 수 있습니다. 코드가 영어처럼 읽혀 Python을 배우는 과정은 즐겁습니다. Whether you are a beginner or an expert, Python offers something for everyone.",
     ]
     
     total_compression = 0

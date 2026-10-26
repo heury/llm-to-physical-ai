@@ -55,7 +55,8 @@ MiniMind-O는 텍스트·음성·이미지를 입력받아 텍스트와 스트�
 ```bash
 git clone --depth 1 https://github.com/jingyaogong/minimind-o
 cd minimind-o
-pip install -r requirements.txt
+uv sync --locked
+source .venv/bin/activate
 ```
 
 CUDA 사용 여부:

@@ -1,0 +1,46 @@
+[project]
+name = "minimind-v"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "datasets",
+    "datasketch",
+    "Flask",
+    "Flask_Cors",
+    "jieba",
+    "jsonlines",
+    "marshmallow",
+    "matplotlib",
+    "ngrok",
+    "nltk",
+    "numpy",
+    "openai",
+    "peft",
+    "psutil",
+    "pydantic",
+    "rich",
+    "scikit_learn",
+    "sentence_transformers",
+    "simhash",
+    "tiktoken",
+    # Keep the existing Transformers 4 model/generation API.
+    "transformers>=4.57.6,<5",
+    "jinja2",
+    # Retain the existing TRL API series; upgrade separately from model dependencies.
+    "trl>=0.13,<0.14",
+    "ujson",
+    "wandb",
+    "streamlit",
+    # Existing demos use Chatbot(type=...) and Blocks(css=..., js=...).
+    "gradio>=5.49.1,<6",
+    "modelscope-studio",
+    "python-multipart",
+    "pyarrow",
+    "Pillow",
+    "swanlab",
+    "torch>=2.6,<3",
+    "torchvision",
+]
+
+[tool.uv]
+package = false

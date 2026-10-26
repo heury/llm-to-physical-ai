@@ -228,7 +228,8 @@ After this update, maintenance for the entire `minimind-v1` series will be disco
 ```bash
 # Clone repository and install dependencies
 git clone --depth 1 https://github.com/jingyaogong/minimind
-cd minimind && pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple
+cd minimind && uv sync --locked
+source .venv/bin/activate
 ```
 
 ## Ⅰ 🚀 Model Inference

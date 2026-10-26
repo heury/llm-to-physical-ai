@@ -62,7 +62,8 @@ MiniMind-V는 [MiniMind 언어 모델](../minimind/README_ko.md)에 이미지 �
 ```bash
 git clone --depth 1 https://github.com/jingyaogong/minimind-v
 cd minimind-v
-pip install -r requirements.txt
+uv sync --locked
+source .venv/bin/activate
 ```
 
 CUDA 사용 가능 여부를 확인합니다.

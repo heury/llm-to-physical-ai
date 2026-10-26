@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoConfig
 
 
 # ===== 각 토큰의 logprob 계산 =====
@@ -102,6 +102,7 @@ class SGLangRolloutEngine(RolloutEngine):
         self.shared_ckpt_path = shared_ckpt_path
         self.timeout = timeout
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        self.export_config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
         self.http = requests
     
     def rollout(self, prompt_ids: Tensor, attention_mask: Tensor, num_generations: int, max_new_tokens: int, temperature: float = 0.8) -> RolloutResult:
@@ -128,6 +129,8 @@ class SGLangRolloutEngine(RolloutEngine):
         results = resp.json()
         if not isinstance(results, list):
             results = [results]
+        if len(results) != len(all_input_ids):
+            raise RuntimeError("SGLang returned an unexpected number of completions")
         
         all_output_ids, all_completion_ids, all_logprobs = [], [], []
         completions = []
@@ -136,6 +139,10 @@ class SGLangRolloutEngine(RolloutEngine):
             meta = result.get("meta_info", {})
             completion_ids = meta.get("output_ids", result.get("output_ids", []))
             raw_logprobs = meta.get("output_token_logprobs", [])
+            if not completion_ids and raw_logprobs:
+                if not all(isinstance(item, (list, tuple)) and len(item) >= 2 for item in raw_logprobs):
+                    raise RuntimeError("SGLang response is missing output token IDs")
+                completion_ids = [int(item[1]) for item in raw_logprobs]
             
             logprobs = []
             for item in raw_logprobs:
@@ -144,10 +151,8 @@ class SGLangRolloutEngine(RolloutEngine):
                 elif isinstance(item, (int, float)):
                     logprobs.append(item)
             
-            if len(logprobs) < len(completion_ids):
-                logprobs = [0.0] * (len(completion_ids) - len(logprobs)) + logprobs
-            elif len(logprobs) > len(completion_ids):
-                logprobs = logprobs[-len(completion_ids):] if completion_ids else []
+            if not completion_ids or len(logprobs) != len(completion_ids):
+                raise RuntimeError("SGLang output tokens and log probabilities must be nonempty and aligned")
             prompt = all_input_ids[i]
             full_output = prompt + completion_ids
             all_output_ids.append(full_output)
@@ -181,10 +186,12 @@ class SGLangRolloutEngine(RolloutEngine):
                 abs_path = os.path.abspath(self.shared_ckpt_path)
                 state_dict = {k: v.detach().half().cpu() for k, v in unwrapped.state_dict().items()}
                 unwrapped.save_pretrained(abs_path, state_dict=state_dict, safe_serialization=False)
+                if self.export_config.model_type == 'qwen3' and unwrapped.config.model_type == 'minimind':
+                    self.export_config.save_pretrained(abs_path)
                 self.tokenizer.save_pretrained(abs_path)
                 resp = self.http.post(f"{self.base_url}/update_weights_from_disk", json={"model_path": abs_path}, timeout=self.timeout)
                 if resp.status_code != 200: print(f"[SGLANG WARNING] update_weights 실패: {resp.status_code}, {resp.text}")
-                ok = resp.status_code == 200
+                ok = resp.status_code == 200 and resp.json().get('success', True)
             except Exception as e:
                 print(f"[SGLANG WARNING] update_weights 예외: {e}"); ok = False
         if dist.is_initialized():

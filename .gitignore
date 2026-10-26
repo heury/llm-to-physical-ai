@@ -1,5 +1,6 @@
 /models/
 /outputs/
+/minimind/outputs/
 
 .env
 .env.*
@@ -13,3 +14,4 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .hypothesis/
+.venv/
