@@ -9,7 +9,11 @@
 ```text
 ./
 ├── AGENTS.md                 # 전체 프로젝트 구조와 주요 파일 안내
-├── test_scenarios/            # 모델별 테스트 입력·절차·판정 기준과 실행 기록
+├── outputs/                   # 테스트 결과, 실행 로그와 생성 산출물
+├── reports/                   # 테스트·검증·분석 보고서
+├── test_scenarios/            # 모델별 테스트 입력·절차·판정 기준 (필요 시 생성)
+├── gpt/                      # GPT 단계별 노트북 실습과 모델 구조 개선 실험
+├── unsloth/                  # Unsloth 기반 Qwen 학습·추론·배포 노트북 실습
 ├── minimind/                 # 기본 자기회귀 언어 모델: Dense/MoE, SFT와 RL
 ├── minimind-v/               # 이미지 이해를 추가한 시각·언어 모델(VLM)
 ├── minimind-o/               # 텍스트·이미지·음성을 처리하는 Omni 모델
@@ -28,6 +32,53 @@
   생길 수 있습니다. README에 경로가 등장해도 로컬에 존재한다고 가정하지 마세요.
 - `.git/`은 버전 관리, `.agents/`, `.codex/`, `.aws/`는 환경 설정 경로입니다.
   일반 소스 수정 대상으로 취급하지 마세요. 캐시 디렉토리도 구조 설명에서 생략합니다.
+
+## gpt — GPT 실습과 모델 구조 실험
+
+```text
+gpt/
+├── README.md                 # uv 환경 설치와 노트북 실행 안내
+├── pyproject.toml / uv.lock  # Python 3.12 프로젝트 의존성과 잠금 파일
+├── Chapter_*.ipynb           # 벡터·데이터·Attention·GPT·사전 학습·SFT·LoRA·DPO 실습
+├── previous_chapters.py      # 노트북에서 재사용하는 GPT 모델·학습·생성·다운로드 함수
+├── model_improvements/       # KV cache, GQA, MLA, MoE, DeltaNet 등 구조 실험
+└── .tours/                   # 모델 개선 코드 탐색용 CodeTour
+```
+
+`gpt/README.md`와 대상 노트북, 가져오는 `previous_chapters.py` 또는
+`model_improvements/` 모듈을 함께 확인하세요. `previous_chapters.py`를 수정하면
+이를 공유하는 여러 노트북에 영향을 줄 수 있습니다. 원본의 저작권·라이선스 안내를 유지합니다.
+설치는 `gpt/`에서 `uv sync --locked`, 실행은 `uv run jupyter lab`을 사용하고
+노트북 커널은 `gpt/.venv/bin/python`을 선택합니다. 데이터·모델 가중치의 존재와
+다운로드 경로를 확인하고, 학습 셀의 실제 실행과 구문 검사만 수행한 경우를 구분하세요.
+새 실행 산출물은 `outputs/gpt/<실행 ID>/`, 보고서는 `reports/gpt/<실행 ID>.md`에 저장합니다.
+
+## unsloth — Unsloth 노트북 실습
+
+```text
+unsloth/
+├── README.md                 # 환경별 설치·실행과 검증 범위 안내
+├── pyproject.toml / uv.lock  # 기본 의존성과 grpo·qat·phone·tools 추가 옵션
+├── .python-version          # Python 버전 지정
+├── Qwen*.ipynb               # Decision, Vision, GRPO, 증류, 도구 호출, QAT, Phone 실습
+└── scripts/
+    ├── execute_notebook.py   # 셀별 실행 기록, executed.ipynb와 status.json 저장
+    └── run_notebook_on_pod.sh # 기존 Pod 내부에서 uv 환경 준비와 노트북 실행
+```
+
+`unsloth/README.md` → `pyproject.toml` → 대상 노트북 순서로 확인하세요.
+Python 3.12 / Linux x86_64 환경을 사용하며, 학습에는 호환되는 NVIDIA GPU와
+CUDA 드라이버가 필요합니다. `unsloth/`에서 `uv sync --locked`로 설치하고
+실습에 따라 `--extra grpo`, `--extra qat`, `--extra phone`, `--extra tools`를 선택합니다.
+`grpo`, `qat`, `phone`은 하나씩 선택하고 `--all-extras`는 사용하지 않습니다.
+환경 변경 전 커널을 종료하고 설치 후 다시 시작하세요.
+
+패키지 설치는 uv로 관리하고, 노트북에 설치 셀을 추가하거나 `--no-deps`로
+의존성을 우회하지 마세요. 배포용 원본 노트북에는 실행 출력과 실행 번호를 남기지 않고,
+실행 사본·로그·지표는 `outputs/unsloth/<실행 ID>/`, 보고서는
+`reports/unsloth/<실행 ID>.md`에 저장합니다. `execute_notebook.py`의
+`--output-dir`도 이 규칙에 맞춥니다. Pod 실행 스크립트는 원격 작업 경로를 사용하므로
+결과를 내려받아 같은 규칙으로 정리하세요. 문서 확인만으로 Pod 실행이나 학습을 시작하지 마세요.
 
 ## minimind — 기본 언어 모델
 
@@ -223,9 +274,31 @@ DLLM은 `model.model_minimind`의 기본 구현을 가져오지만 해당 디렉
 - 체크포인트·모델 성공 여부는 소스 파일이나 과거 검증 문서의 존재만으로 판단하지
   마세요. 현재 파일, 실행 결과와 필요한 외부 리소스를 확인하고 검증 범위를 보고합니다.
 
+## 테스트 결과와 보고서 저장 규칙
+
+- 각종 테스트 결과와 실행 산출물은 저장소 루트의
+  `outputs/<프로젝트>/<실행 ID>/` 아래에 정리합니다. 단위·통합·수동 테스트,
+  노트북 실행과 클라우드 검증 모두 같은 규칙을 적용합니다.
+- 실행 ID는 `20261027-153000-smoke`처럼 날짜·시간과 작업명을 조합해
+  실행별로 구분합니다. 로그, 지표 JSON/CSV, 생성 샘플, 실행된 노트북,
+  이미지 및 리소스 사용 기록은 해당 실행 폴더에 함께 보관합니다.
+- 결과를 설명하는 테스트·검증·분석 보고서는 저장소 루트의
+  `reports/<프로젝트>/<실행 ID>.md`에 저장합니다. 보고서에는 실행 명령과
+  작업 디렉토리, 환경·패키지 버전, 모델·데이터 리비전, 판정 근거,
+  실패·미실행 항목과 검증 한계를 기록하고 대응하는 `outputs/` 경로를 명시합니다.
+- 프로젝트 디렉토리에서 실행하더라도 저장 경로는 저장소 루트를 기준으로
+  지정합니다. 필요한 폴더는 생성하고, 스크립트의 출력 옵션으로 경로를 설정하세요.
+- `test_scenarios/`에는 재사용할 입력·절차·판정 기준을 두고,
+  실제 실행 결과는 `outputs/`, 결과 보고서는 `reports/`에 저장합니다.
+  기존 기록을 옮길 때는 참조 링크도 함께 갱신합니다.
+- `outputs/`는 `.gitignore` 대상입니다. 보고서에는 핵심 결과를 직접 요약하고,
+  산출물을 별도로 보관했다면 재확인할 수 있는 위치도 기록합니다.
+  인증 정보나 비밀 값은 산출물과 보고서에 포함하지 마세요.
+
 ## 모델 테스트 시나리오
 
-`test_scenarios/`는 모델별 수동·통합 테스트 시나리오를 기록하는 공통 위치입니다.
-`test_scenarios/README.md`를 참고해 해당 모델 폴더에 작성하세요.
-가중치·입력·생성 설정과 판정 근거를 기록하고, 미실행 시나리오를 통과 결과로 보고하지 마세요.
+`test_scenarios/<모델>/`에 모델별 수동·통합 테스트 입력·절차·판정 기준을 작성합니다.
+해당 경로에 README가 있으면 먼저 확인하고, 폴더가 없으면 필요할 때 생성하세요.
+가중치·입력·생성 설정을 명시하고, 실행 결과와 판정 근거는 위 저장 규칙에 따라
+`outputs/`와 `reports/`에 기록합니다. 미실행 시나리오를 통과 결과로 보고하지 마세요.
 자동화된 단위 테스트는 각 프로젝트의 기존 테스트 위치에 유지합니다.
