@@ -1,0 +1,37 @@
+[project]
+name = "unsloth-playground"
+version = "0.1.0"
+description = "Unsloth notebook experiments for reasoning, vision, and model adaptation"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "ipykernel", "ipywidgets", "jupyterlab", "nbformat", "pip", "uv",
+    "unsloth>=2026.10.9", "unsloth-zoo>=2026.10.9", "torch", "torchvision", "torchaudio",
+    "transformers", "trl", "peft", "accelerate", "bitsandbytes", "xformers",
+    "datasets", "huggingface-hub", "tokenizers", "sentencepiece",
+    "protobuf", "safetensors", "numpy", "pandas", "pillow", "requests", "tqdm",
+]
+
+[project.optional-dependencies]
+grpo = ["vllm>=0.32.0"]
+# MSLK 1.3.0 CUDA 13 바이너리는 PyTorch 2.13과 호환됩니다.
+qat = ["torch==2.13.0", "torchao", "fbgemm-gpu-genai", "mslk==1.3.0+cu130"]
+# 변환기는 executorch에 포함됩니다. optimum-executorch는 구버전 Transformers를 강제합니다.
+phone = ["torchao", "pytorch-tokenizers", "executorch", "pyyaml"]
+tools = ["transformers-cfg"]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+conflicts = [
+    [{extra = "grpo"}, {extra = "qat"}, {extra = "phone"}],
+]
+
+# PyPI's xformers wheel uses CUDA 12.8; these environments use CUDA 13.0.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+xformers = { index = "pytorch-cu130" }
+mslk = { index = "pytorch-cu130" }

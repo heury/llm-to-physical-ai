@@ -42,7 +42,12 @@ class ToolRewardTests(unittest.TestCase):
             self.assertEqual(self.score(['<tool_call>'+json.dumps(call)+'</tool_call>', '703']), -1.5)
 
     def test_unfinished_trajectory_is_not_success(self):
-        self.assertEqual(self.score([self.call(), '703'], unfinished=True), -0.5)
+        self.assertEqual(self.score([self.call(), '703'], unfinished=True), -2.0)
+
+    def test_repetition_is_not_better_than_refusal(self):
+        self.assertLess(self.score([self.call(), self.call(), self.call()], unfinished=True),
+                        self.score(['Cannot answer.']))
+        self.assertLess(self.score([self.call(), self.call(), '703']), 3.0)
 
     def test_numeric_match_does_not_accept_substrings(self):
         self.assertEqual(validate_gt_in_text('1703 or 7030 or 703.5', ['703']), set())

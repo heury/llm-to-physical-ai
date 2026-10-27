@@ -3,7 +3,7 @@ name = "gpt"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "torch>=2.6,<3",
+    "torch>=2.8,<2.9",
     "tiktoken",
     "numpy",
     "pandas",

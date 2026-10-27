@@ -4,41 +4,10 @@
 
 사용자 요청과 주요 답변을 대화 순서대로 정리했다. agent 항목은 실행·검증 결과 요약이며 도구 호출 원문, 환경 설정 메시지, 인증 정보는 제외했다. 진행률은 각 답변 당시 확인한 값이며, 이 문서를 작성하면서 클라우드의 최신 상태를 다시 조회하지는 않았다.
 
-## user — 코드와 데이터 확인
-
-minimind/trainer/train_ppo.py에서 학습 과정을 쉽게 설명해.
-
-선택한 부분에서 주석을 제외한 한국어는 영어로 변경해.
-
-이 코드에서 사용하는 데이터셋은?
-
-## agent — 작업 범위 요약
-
-PPO 학습 설명에 이어 `train_agent.py`의 도구 설명·모의 데이터 등 선택 영역을 영어로 변경하는 작업으로 이어졌다. 이후 Agent RL 데이터의 영어 변환과 원격 학습을 요청했다.
-
-## user — 영어 데이터셋 생성
-
-https://huggingface.co/datasets/jingyaogong/minimind_dataset/resolve/main/agent_rl.jsonl
-
-이 데이터를 openrouter의 minimax/minimax-m3.1-flash을 이용하여 영어 데이터로 변경한 다음 huggingface에 업로드해.
-
-caspar 이고 로그인이 되어 있어.
-
-공개로 업로드하고 translate_text 함수에 관련된 데이터는 제외해.
-
-## agent — 데이터 준비 결과
-
-원본 39,988개 중 `translate_text` 관련 9,792개를 제외하고 **30,196개**를 영어로 변환했다. 공개 데이터셋 [caspar/agent-rl-en](https://huggingface.co/datasets/caspar/agent-rl-en)에 업로드하고 읽기 검증을 수행했다.
-
-- 리비전: `57e3a151f11b0cdd2e150dc6fb2e508842b96ab0`
-- 파일: `agent_rl_en.jsonl`
-- SHA256: `d93641d906274d2781470551fbd91797f8681b129f29f47f119fed4447b073b3`
-- 이후 조사한 구성: 도구 과제 10,208개, 일반 대화 19,988개
-
 ## user — train_agent.py 원격 학습 요청
 
 caspar/agent-rl-en 데이터를 이용하여 train_agent.py 학습 진행해.
-베이스 모델은 caspar/MiniMind-Dense-64M-Mixed-SFT-v1.0을 사용하고, 학습에 관련된 명령어는 아래 샘플을 참고해.
+베이스 모델은 caspar/MiniMind-Dense-64M-Mixed-SFT-v1.0을 사용하고, 보상 모델은 Skywork/Skywork-Reward-V2-Qwen3-1.7B을 이용해. 학습에 관련된 명령어는 아래 샘플을 참고해.
 
 runpod에서 rtx 5090 pod을 이용해서 학습을 진행하고, 학습이 완료되면 결과와 샘플 테스트를 보고하고, 모델을 huggingface에 업로드후 pod는 제거해.
 
@@ -52,39 +21,7 @@ python train_agent.py --rollout_engine sglang --sglang_base_url http://localhost
 
 위 명령은 사용자 제공 참고 예시이며, 실제 실행에서는 영어 데이터 경로와 로컬 전용 SGLang 주소를 사용했다.
 
-## user — 보상 모델 지정
-
-보상 모델은 Skywork/Skywork-Reward-V2-Qwen3-1.7B을 이용해.
-
-## agent — 실행 설정 및 준비
-
-- 베이스: `caspar/MiniMind-Dense-64M-Mixed-SFT-v1.0`, 리비전 `7597c22aa4d3e7b2ac824b4b4be01158cccf1b8d`.
-- 보상 모델: `Skywork/Skywork-Reward-V2-Qwen3-1.7B`, 리비전 `e51ea3e08fb81326c3b812a7ff0cb9cee83e59cc`.
-- 전체 30,196개, 1 epoch, batch 4, 프롬프트당 생성 4개, 총 7,549 optimizer updates.
-- CISPO, 학습률 `3e-7 → 3e-8`, KL 계수 0.1, BF16, gradient clipping 1.0.
-- 응답당 microbatch 1, 동시 rollout 16, 턴당 최대 256토큰, 최대 3턴, 학습 시퀀스 상한 2,500토큰.
-- 정책 동기화 10배치마다, 체크포인트 저장 200배치마다.
-- SGLang 0.5.5, Triton attention, PyTorch 2.8. 학습은 native MiniMind, rollout은 가중치 호환성을 검증한 Qwen3 형식 export를 사용했다.
-- Skywork의 sequence-classification head를 사용하고 원시 점수를 10으로 나눈 뒤 클리핑했다. 이 스케일과 기존 길이 보상의 조합은 이후 실패 원인 후보가 됐다.
-- 의존성·보상 모델 로딩 문제를 수정하고, SGLang 토큰/로그확률 정렬·정책 갱신·microbatch 기울기 일치 등을 확인했다.
-
-## user — 재고 대기
-
-RTX 5090 재고 대기.
-
-## agent — 첫 번째 실행 시작
-
-다른 GPU로 변경하지 않고 기다린 뒤 RTX 5090 Pod `w4f4hf9r54sk2m`를 확보했다. 별도 16행 스모크 학습 4 updates를 통과한 후 전체 학습을 시작했다.
-
-GPU 사전 검증에서 Skywork는 `2+2`의 정답 4에 원시 점수 2.671875, 오답 17에 -8.125를 줬다. 이는 간단한 응답 순위 확인이며 도구 과제 보상 전체의 적절성 검증은 아니었다.
-
-자동 승인 검토가 저장 볼륨 삭제를 거절해, Pod만 제거하고 볼륨은 보존하도록 감독 서비스를 수정했다.
-
-[첫 번째 실행 W&B](https://forge.coreweave.com/wandb/mind4u/MiniMind-Agent-RL/runs/ov83mg3c)
-
 ## user — 진행 상황과 정상 학습 여부 확인
-
-진행 상황 보고해.
 
 정상적으로 학습되고 있는지 검토해.
 
@@ -193,15 +130,6 @@ agent는 호출만 가르친 체크포인트 선택이 전체 상호작용의 �
 
 이 검토에서는 학습 중단이나 정책 교체를 실행하지 않았다. 최종 업로드의 성능 개선 조건은 유지했다.
 
-## user — 마지막 진행 상황 요청
-
-진행상황 보고해.
-
-## agent — 당시 확인 한계
-
-기존 작업 경로에 접근할 수 없어 최신 상태를 확인하지 못했다고 답했다. 마지막 확인값은 약 69%였으며, 완료·최종 평가·업로드·Pod 정지를 새로 확인했다고 보고하지 않았다.
-
-이 문서 작성 중 저장소가 `/home/mind4u/dev/llm-to-physical-ai`로 이동한 것을 확인했다. 이는 이전 경로 접근 실패를 설명하지만 클라우드 작업 완료 여부를 입증하지는 않는다. 두 번째 실행이 성공적으로 완료·게시됐다고 이 기록에서 결론 내리지 않는다.
 
 ## 관련 코드와 당시 검토 기록
 

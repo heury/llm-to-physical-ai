@@ -229,6 +229,8 @@ def tool_task_reward(turns, calls, tools, gt, unfinished):
         return -1.0
     schemas = {t['function']['name']: t['function'] for t in tools}
     results = []
+    seen_calls = set()
+    repeated_calls = 0
     for call in calls:
         name, args = call['name'], call.get('arguments', {})
         if isinstance(args, str):
@@ -254,14 +256,17 @@ def tool_task_reward(turns, calls, tools, gt, unfinished):
         result = execute_tool(name, args)
         if result is None:
             return -1.5
+        signature = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+        repeated_calls += int(signature in seen_calls)
+        seen_calls.add(signature)
         results.append(json.dumps(result, ensure_ascii=False))
     if unfinished:
-        return -0.5
+        return max(-3.0, -2.0 - 0.25 * repeated_calls)
     final_text = turns[-1].split('</tool_call>')[-1].strip() if turns else ''
     matched = validate_gt_in_text(final_text, gt) & validate_gt_in_text('\n'.join(results), gt)
     fraction = len(matched) / len(set(gt)) if gt else 0.0
     score = 0.5 + 2.5 * fraction if matched else -0.5
-    return max(-3.0, score - rep_penalty(final_text))
+    return max(-3.0, score - rep_penalty(final_text) - 0.25 * repeated_calls)
 
 
 def calculate_rewards(prompts, completions, gt_batch, tools_batch, num_gen, reward_model=None, device="cuda", turn_outputs_batch=None, unfinished_batch=None):
