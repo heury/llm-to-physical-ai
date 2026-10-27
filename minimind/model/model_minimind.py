@@ -158,6 +158,7 @@ class MOEFeedForward(nn.Module):
         x_flat = x.view(-1, hidden_dim)
         scores = F.softmax(self.gate(x_flat), dim=-1)
         topk_weight, topk_idx = torch.topk(scores, k=self.config.num_experts_per_tok, dim=-1, sorted=False)
+        # 선택된 전문가의 가중치를 정규화하고, top-1 라우팅에서는 straight-through로 게이트 그래디언트를 유지합니다.
         if self.config.norm_topk_prob:
             if self.config.num_experts_per_tok > 1: 
                 topk_weight = topk_weight / (topk_weight.sum(dim=-1, keepdim=True) + 1e-20)
@@ -165,6 +166,7 @@ class MOEFeedForward(nn.Module):
                 top1 = torch.topk(F.softmax(self.gate(x_flat.detach()), dim=-1), k=1, dim=-1, sorted=False)[0]
                 topk_weight = top1 - top1.detach() + 1.0 # k=1: 1.0 forward on purpose, gradient via straight-through
         y = torch.zeros_like(x_flat)
+        # 각 토큰을 선택된 전문가로 라우팅하고, 사용되지 않은 전문가도 학습 그래프에 유지합니다.
         for i, expert in enumerate(self.experts):
             mask = (topk_idx == i)
             if mask.any():
@@ -173,6 +175,7 @@ class MOEFeedForward(nn.Module):
                 y.index_add_(0, token_idx, (expert(x_flat[token_idx]) * weight).to(y.dtype))
             elif self.training:
                 y[0, 0] += 0 * sum(p.sum() for p in expert.parameters())
+        # 학습 중에는 전문가 사용 균형을 맞추기 위한 라우터 보조 손실을 계산합니다.
         if self.training and self.config.router_aux_loss_coef > 0:
             load = F.one_hot(topk_idx, self.config.num_experts).float().mean(0)
             self.aux_loss = (load * scores.mean(0)).sum() * self.config.num_experts * self.config.router_aux_loss_coef

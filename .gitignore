@@ -1,5 +1,6 @@
-/models/
-/outputs/
+datas/
+models/
+outputs/
 /minimind/outputs/
 
 .env

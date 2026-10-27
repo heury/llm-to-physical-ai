@@ -1,0 +1,16 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "mla",
+  "steps": [
+    {
+      "file": "model_improvements/gpt_with_kv_mla.py",
+      "description": "이 세 줄은 **MLA(Multi-Head Latent Attention)**에서 K/V를 바로 크게 만들지 않고, 먼저 작은 벡터로 압축한 다음 다시 K/V로 펼치는 부분입니다.\n\n대상 코드:\n\n```python\nself.W_DKV = nn.Linear(d_in, self.latent_dim, bias=qkv_bias)  # down to latent C\nself.W_UK = nn.Linear(self.latent_dim, d_out, bias=qkv_bias)  # latent -> per-head K\nself.W_UV = nn.Linear(self.latent_dim, d_out, bias=qkv_bias)  # latent -> per-head V\n```\n\n쉽게 말하면 흐름은 이렇습니다.\n\n```text\n입력 x\n  ↓\n작은 latent C로 압축\n  ↓\nC에서 Key 생성\nC에서 Value 생성\n```\n\n각 줄은 이렇게 보면 됩니다.\n\n```python\nself.W_DKV = nn.Linear(d_in, self.latent_dim, ...)\n```\n\n입력 토큰 벡터를 작은 잠재 벡터 `C`로 압축합니다.  \n`DKV`는 대략 **Down-project Key/Value**로 보면 됩니다.\n\n```python\nself.W_UK = nn.Linear(self.latent_dim, d_out, ...)\n```\n\n압축된 latent 벡터 `C`를 다시 펼쳐서 **Key**를 만듭니다.  \n`UK`는 **Up-project Key** 느낌입니다.\n\n```python\nself.W_UV = nn.Linear(self.latent_dim, d_out, ...)\n```\n\n같은 latent 벡터 `C`를 다시 펼쳐서 **Value**를 만듭니다.  \n`UV`는 **Up-project Value**입니다.\n\n왜 이렇게 하냐면, KV cache에 큰 `K`, `V`를 그대로 저장하는 대신 작은 `latent C`를 저장할 수 있기 때문입니다.\n\n일반 attention 느낌:\n\n```text\nx -> K\nx -> V\n\n캐시: K와 V를 저장\n```\n\nMLA 느낌:\n\n```text\nx -> C\nC -> K\nC -> V\n\n캐시: 작은 C를 저장\n```\n\n그래서 이 코드의 핵심은:\n\n```text\nK/V를 직접 캐시하지 말고,\nK/V의 재료가 되는 작은 latent C를 캐시하자\n```\n\n입니다.  \n메모리를 아끼기 위한 구조라고 보면 가장 쉽습니다.",
+      "line": 37
+    },
+    {
+      "file": "model_improvements/gpt_with_kv_mla.py",
+      "description": "아래처럼 단순한 코드로 표현하면 더 직관적입니다.\n\n```python\n# Query는 입력 x에서 바로 만든다\nQ = W_query(x)\n\n# Key/Value는 바로 만들지 않고,\n# 먼저 작은 latent 벡터 C로 압축한다\nC = W_DKV(x)\n\n# 나중에 C에서 Key와 Value를 만든다\nK = W_UK(C)\nV = W_UV(C)\n```\n\n즉 선택한 코드 블럭은 이렇게 이해하면 됩니다.\n\n```python\nqueries_all = self.W_query(x)   # x -> Q\nlatent_new = self.W_DKV(x)      # x -> C\n\nkeys_all = self.W_UK(latent_total)      # C -> K\nvalues_all = self.W_UV(latent_total)    # C -> V\n```\n\n핵심은 이것입니다.\n\n```python\n# 일반 attention\nK = W_key(x)\nV = W_value(x)\n\n# MLA\nC = W_DKV(x)\nK = W_UK(C)\nV = W_UV(C)\n```\n\nMLA는 `K`, `V`를 바로 만들고 저장하는 대신, 더 작은 `C`를 먼저 만들어 저장한 뒤 필요할 때 `K`, `V`로 펼칩니다.",
+      "line": 65
+    }
+  ]
+}

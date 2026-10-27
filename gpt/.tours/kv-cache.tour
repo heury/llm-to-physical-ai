@@ -1,0 +1,16 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "kv-cache",
+  "steps": [
+    {
+      "file": "model_improvements/gpt_with_kv_cache.py",
+      "description": "아래처럼 보면 됩니다.\n\n```text\n전체 causal mask\n\n          Key 위치\n          0:A   1:B   2:C   3:D\nQuery 0:A  O     X     X     X\nQuery 1:B  O     O     X     X\nQuery 2:C  O     O     O     X\nQuery 3:D  O     O     O     O\n```\n\n여기서:\n\n```python\nself.mask.bool()[3:4, :4]\n```\n\n는 이 부분만 잘라내는 겁니다.\n\n```text\n          Key 위치\n          0:A   1:B   2:C   3:D\nQuery 3:D  O     O     O     O\n```\n(3:4는 행, :4는 열)\n\n그림처럼 표시하면:\n\n```text\n전체 mask에서 선택되는 영역\n\n          Key 위치\n          0:A   1:B   2:C   3:D\n        +-----+-----+-----+-----+\nQ 0:A   |  O  |  X  |  X  |  X  |\n        +-----+-----+-----+-----+\nQ 1:B   |  O  |  O  |  X  |  X  |\n        +-----+-----+-----+-----+\nQ 2:C   |  O  |  O  |  O  |  X  |\n        +-----+-----+-----+-----+\nQ 3:D   | [O] | [O] | [O] | [O] |  <- self.mask[3:4, :4]\n        +-----+-----+-----+-----+\n```\n\n즉 `3:4`는 **D의 Query 행**을 고르고, `:4`는 **A, B, C, D까지의 Key 열**을 고릅니다.\n\n```text\nD가 볼 수 있는 대상:\nA  B  C  D\nO  O  O  O\n```\n\n",
+      "line": 77
+    },
+    {
+      "file": "model_improvements/gpt_with_kv_cache.py",
+      "description": "이 함수는 **텍스트를 생성하는 함수**인데, 핵심은 `use_cache=True`일 때 **KV cache를 써서 더 빠르게 생성한다**는 점입니다.\n\n```python\nwith torch.no_grad():\n```\n\n생성할 때는 학습이 아니므로 gradient 계산을 끕니다. 메모리를 덜 쓰고 더 빠릅니다.\n\n---\n\n`use_cache=True`인 경우:\n\n```python\nmodel.reset_kv_cache()\nlogits = model(idx[:, -ctx_len:], use_cache=True)\n```\n\n먼저 cache를 비우고, 입력 prompt 전체를 모델에 한 번 넣습니다.\n\n예를 들어 입력이:\n\n```text\n나는 밥을\n```\n\n이라면 처음에는 전체 prompt를 넣습니다.\n\n```text\n모델 입력: 나는 밥을\n```\n\n이때 모델 내부에 `나는`, `밥을`에 대한 Key/Value가 cache에 저장됩니다.\n\n---\n\n그 다음 반복문에서 새 토큰을 하나씩 만듭니다.\n\n```python\nnext_idx = logits[:, -1].argmax(dim=-1, keepdim=True)\n```\n\n마지막 위치의 예측 결과에서 가장 점수가 높은 토큰을 고릅니다.\n\n```text\n나는 밥을 -> 먹었다\n```\n\n같은 식입니다. 여기서는 sampling이 아니라 **greedy decoding**입니다. 즉 가장 확률 높은 토큰만 고릅니다.\n\n---\n\n```python\nidx = torch.cat([idx, next_idx], dim=1)\n```\n\n새로 뽑은 토큰을 기존 문장 뒤에 붙입니다.\n\n```text\n나는 밥을\n나는 밥을 먹었다\n```\n\n---\n\n가장 중요한 부분은 여기입니다.\n\n```python\nif step + 1 < max_new_tokens:\n    logits = model(next_idx, use_cache=True)\n```\n\nKV cache를 쓰기 때문에 다음 forward에서는 **전체 문장을 다시 넣지 않고**, 방금 만든 새 토큰 하나만 넣습니다.\n\n```text\n첫 번째 forward:\n입력: 나는 밥을\n\n다음 forward:\n입력: 먹었다\n```\n\n하지만 모델은 cache 덕분에 이전 토큰들인 `나는 밥을`의 Key/Value를 기억하고 있습니다. 그래서 새 토큰 하나만 넣어도 전체 문맥을 이어서 계산할 수 있습니다.\n\n---\n\n반대로 `use_cache=False`인 경우:\n\n```python\nfor _ in range(max_new_tokens):\n    logits = model(idx[:, -ctx_len:], use_cache=False)\n    next_idx = logits[:, -1].argmax(dim=-1, keepdim=True)\n    idx = torch.cat([idx, next_idx], dim=1)\n```\n\n매번 전체 문장을 다시 모델에 넣습니다.\n\n```text\n1번:\n입력: 나는 밥을\n\n2번:\n입력: 나는 밥을 먹었다\n\n3번:\n입력: 나는 밥을 먹었다 그리고\n```\n\n이 방식은 단순하지만, 생성된 토큰이 길어질수록 같은 앞부분을 계속 다시 계산하므로 느립니다.\n\n---\n\n정리하면:\n\n```text\nuse_cache=True\n처음에 prompt 전체 계산\n그 다음부터는 새 토큰 1개씩만 계산\n빠름\n\nuse_cache=False\n매번 전체 문장을 다시 계산\n느림\n```\n\n이 코드 블록의 목적은 **같은 결과를 만들되, KV cache를 사용해서 반복 생성 속도를 빠르게 만드는 것**입니다.",
+      "line": 289
+    }
+  ]
+}
