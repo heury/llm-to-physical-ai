@@ -454,6 +454,7 @@ def download_model(file_name, model_path):
     url = f"https://huggingface.co/rasbt/gpt2-from-scratch-pytorch/resolve/main/{file_name}"
 
     if not os.path.exists(model_path):
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
         response = requests.get(url, timeout=60)
         response.raise_for_status()
         with open(model_path, "wb") as f:
