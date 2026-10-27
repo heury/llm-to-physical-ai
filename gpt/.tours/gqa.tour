@@ -1,0 +1,16 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "gqa",
+  "steps": [
+    {
+      "file": "model_improvements/gpt_with_kv_gqa.py",
+      "description": "key/value projection을 작게 만드는 부분\nMHA라면 보통 num_heads * head_dim만큼 key/value를 만드는데, 여기서는 num_kv_groups * head_dim만 만듭니다. 이게 GQA의 가장 중요한 차이입니다.",
+      "line": 32
+    },
+    {
+      "file": "model_improvements/gpt_with_kv_gqa.py",
+      "description": "코드 주석으로 넣었던 Markdown 블록은 제거했습니다.\n\n**`repeat_interleave` 예시**\n\n`num_kv_groups`개의 K/V를 반복해서 query head들이 공유하게 만드는 방식입니다.\n\n**적용 전**  \n`dim=1`, 즉 head/group 차원 기준:\n\n```text\n[K1, K2]\n```\n\n**`repeat_interleave` 적용 후**  \n각 KV 그룹이 `group_size`번 연속 반복됩니다.\n\n```text\n[K1, K1, K2, K2]\n```\n\n**일반 `repeat`를 사용한 경우**\n\n```text\n[K1, K2, K1, K2]\n```\n\n핵심 차이는 `repeat_interleave`는 같은 KV 그룹을 **연속으로 묶어서** query head에 배정한다는 점입니다.",
+      "line": 74
+    }
+  ]
+}

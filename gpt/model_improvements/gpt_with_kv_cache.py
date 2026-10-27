@@ -74,12 +74,15 @@ class MultiHeadAttention(nn.Module):
 
         ####################################################
         # NEW
+        # Query 길이는 현재 step의 토큰 수이고, Key 길이는 캐시에 저장된 이전 토큰까지 포함한다.
         num_tokens_Q = queries.shape[-2]
         num_tokens_K = keys.shape[-2]
         if use_cache:
+            # 새 Query가 이전에 캐시된 Key까지 볼 수 있도록 절대 디코딩 위치 기준으로 causal mask를 자른다.
             mask_bool = self.mask.bool()[
                 self.ptr_current_pos:self.ptr_current_pos + num_tokens_Q, :num_tokens_K
             ]
+            # 이번 forward에서 처리한 Query 토큰 수만큼 디코딩 위치 포인터를 앞으로 이동한다.
             self.ptr_current_pos += num_tokens_Q
         ####################################################
         # Original mask truncated to the number of tokens and converted to boolean
