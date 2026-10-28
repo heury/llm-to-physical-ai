@@ -1,0 +1,16 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "distillation_training",
+  "steps": [
+    {
+      "file": "minimind/trainer/train_distillation.py",
+      "description": "36행의 이 코드는 **온도를 높였을 때 약해지는 증류 학습의 기울기를 보정하기 위해** 사용합니다.\n\n```python\nreturn (temperature ** 2) * kl\n```\n\n앞부분에서 교사와 학생의 logits를 모두 온도 `T`로 나눕니다.\n\n```python\nteacher_probs = F.softmax(teacher_logits / temperature, dim=-1)\nstudent_log_probs = F.log_softmax(student_logits / temperature, dim=-1)\n```\n\n`T`를 높이면 확률 분포가 부드러워져, 학생이 교사의 **정답 외 후보 토큰에 대한 상대적 선호**도 배우기 쉬워집니다. 다만 이때 학생 logits에 전달되는 KL 손실의 기울기는 대략 `1/T²` 비율로 작아집니다. 따라서 `T²`를 곱해 학습 신호의 크기를 보정합니다.\n\n예를 들어 기본값 `T=1.5`이면 KL 손실에 `2.25`를 곱합니다. 이 보정이 없으면 온도를 올릴수록 전체 손실에서 증류의 영향이 줄어들어, `alpha`로 설정한 CE와 증류 간 균형도 달라질 수 있습니다.\n\n단, **`1/T²`는 근사적인 관계**이며, `T²` 보정이 온도에 따른 모든 차이를 정확히 상쇄하는 것은 아닙니다.",
+      "line": 25
+    },
+    {
+      "file": "minimind/trainer/train_distillation.py",
+      "description": "\n**현재 위치에서 다음 토큰을 예측하도록 정렬합니다.**\n\n```python\nstudent_logits = res.logits[..., :-1, :].contiguous()\nshift_labels = labels[..., 1:].contiguous()\n```\n\n언어 모델은 현재까지의 토큰으로 다음 토큰을 예측합니다. 따라서 예측과 정답을 한 칸 어긋나게 맞춥니다.\n\n```text\n입력 위치:    나는    학교에    간다\n비교할 정답:  학교에  간다      EOS\n```\n\n학생과 교사도 같은 입력의 같은 위치에서 나온 예측끼리 비교합니다.\n",
+      "line": 55
+    }
+  ]
+}
