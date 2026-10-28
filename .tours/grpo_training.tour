@@ -1,0 +1,46 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "grpo_training",
+  "steps": [
+    {
+      "file": "minimind/trainer/train_grpo.py",
+      "description": "모델 기반 reward 함수",
+      "line": 39
+    },
+    {
+      "file": "minimind/trainer/train_grpo.py",
+      "description": "rollout를 통해서 생성한 token들의 로그 확률",
+      "line": 115
+    },
+    {
+      "file": "minimind/trainer/train_grpo.py",
+      "description": "rollout로 생성한 token으로 한번더 순전파를 하여 현재 로그 확률을 구함",
+      "line": 131
+    },
+    {
+      "file": "minimind/trainer/train_grpo.py",
+      "description": "KL 계산을 하기 위해 ref 모델에서도 한번 순전파함\n",
+      "line": 136
+    },
+    {
+      "file": "minimind/trainer/rollout_engine.py",
+      "description": "num_generations 만큼 prompt를 복제해서 num_generations만큼 결과를 생성함\n",
+      "line": 76
+    },
+    {
+      "file": "minimind/trainer/rollout_engine.py",
+      "description": " `TorchRolloutEngine`은 학습 중인 policy 모델을 직접 사용해 답변을 생성합니다.**\n\n```python\nself.policy_model = policy_model\n```\n\n가중치를 복사한 별도 모델이 아니라 **같은 모델 객체를 참조**합니다.\n\n```python\nmodel.generate(...)\n```\n\n따라서 `optimizer.step()`으로 policy 가중치가 바뀌면, 다음 생성에서도 변경된 가중치를 바로 사용합니다. 별도의 가중치 동기화가 필요하지 않습니다.\n\n| 구분 | TorchRolloutEngine | SGLangRolloutEngine |\n|---|---|---|\n| 생성 모델 | 학습 policy와 같은 객체 | 서버에 따로 로드된 모델 |\n| policy 업데이트 반영 | 다음 생성에 바로 반영 | `update_policy()` 호출 후 반영 |\n| `update_policy()` 역할 | 모델 객체 참조 설정 | 가중치 저장 및 서버 로딩 요청 |\n\n즉, 앞에서 설명한 **“동기화 주기 사이에는 이전 policy로 생성한다”는 SGLang 경로에 해당**합니다. 기본 Torch 경로는 현재 policy로 직접 생성합니다.",
+      "line": 64
+    },
+    {
+      "file": "minimind/trainer/train_grpo.py",
+      "description": "일정 주기마다 rollout에서 sglang용 모델을 업데이트함 ",
+      "line": 352
+    },
+    {
+      "file": "minimind/dataset/lm_dataset.py",
+      "description": "여기서 핵심은 `conversations[:-1]`입니다. **마지막 메시지를 제외**합니다.\n\n예를 들어 원본이 다음과 같다면:\n\n```text\nuser:      대한민국의 수도는?\nassistant: 서울입니다.\n```\n\n모델에 줄 프롬프트에는 다음 부분만 남깁니다.\n\n```text\nuser:      대한민국의 수도는?\nassistant: [여기부터 모델이 생성]\n```\n",
+      "line": 216
+    }
+  ]
+}

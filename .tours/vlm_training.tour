@@ -1,0 +1,31 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "vlm_training",
+  "steps": [
+    {
+      "file": "minimind-v/model/model_vlm.py",
+      "description": "\n**이미지 특징을 언어 모델의 임베딩 공간으로 변환합니다**\n\n[model_vlm.py](/home/mind4u/dev/llm_playground/minimind-v/model/model_vlm.py:24)의 Projector는 작은 MLP입니다.\n\n처리 흐름은 다음과 같습니다.\n\n```python\nimage_features = get_image_embeddings(pixel_values, vision_encoder)\nvision_tensors = vision_proj(image_features)\n```\n\n```text\n이미지 특징 [B, 이미지 토큰 수, 이미지 특징 차원]\n    ↓ Projector\n언어 모델용 [B, 이미지 토큰 수, LLM hidden_size]\n```\n",
+      "line": 23
+    },
+    {
+      "file": "minimind-v/dataset/lm_dataset.py",
+      "description": "\n```text\n이미지: 고양이가 소파에 앉아 있는 사진\n질문:   <image> 이 이미지를 설명하세요.\n정답:   고양이가 소파에 앉아 있습니다.\n```\n\n반환하는 값은 세 가지입니다.\n\n```python\ninput_ids, labels, pixel_values\n```\n\n- `input_ids`: 질문과 정답을 포함한 대화 토큰\n- `labels`: 학습할 정답 토큰. 답변 외 위치는 `-100`\n- `pixel_values`: 이미지 processor로 전처리한 이미지\n\nSFT와 마찬가지로 학습 중에는 정답 답변도 입력에 포함하며, 이전 문맥으로 다음 토큰을 예측합니다.\n",
+      "line": 93
+    },
+    {
+      "file": "minimind-v/trainer/trainer_utils.py",
+      "description": "vision_proj는 기본 상태인 requires_grad=True를 유지하고, 나머지는 False로 바뀝니다.\noptimizer에서도 vision_proj만 가지고 있음\n\noptimizer = optim.AdamW(\n    filter(lambda p: p.requires_grad, model.parameters()),\n    lr=args.learning_rate,\n)",
+      "line": 77
+    },
+    {
+      "file": "minimind-v/trainer/trainer_utils.py",
+      "description": "언어 모델의 첫 층과 마지막 층을 다시 학습 가능하게 만듭니다. \n**이미지 입력에 적응하도록 언어 모델 일부를 조정하면서, 기존 언어 능력은 최대한 유지하려는 절충입니다.**\n\nPretrain에서 Projector만 학습했다면, 이미지 특징을 언어 모델에 전달할 수는 있어도 질문에 맞춰 활용하는 능력이 충분하지 않을 수 있습니다. SFT에서는 Projector와 함께 언어 모델의 일부도 조정합니다.\n\n**첫 번째 층은 새로운 이미지 입력에 적응하는 역할**을 기대할 수 있습니다.\n\n```text\n이미지 → 인코더 → Projector → 이미지 임베딩\n                                  ↓\n                           첫 번째 Transformer 층\n```\n\n기존 언어 모델은 텍스트 임베딩을 처리하도록 학습되었습니다. 첫 층을 조정하면 Projector가 전달하는 이미지 임베딩과 텍스트를 함께 처리하는 데 적응할 여지가 생깁니다.\n\n**마지막 층은 이미지·질문 정보를 답변 예측에 맞게 정리하는 역할**을 기대할 수 있습니다.\n\n```text\n중간 층에서 처리한 정보\n        ↓\n마지막 Transformer 층 ← 학습\n        ↓\n최종 Norm → LM head → 다음 토큰 예측\n```\n\nLM head가 고정되어 있어도 마지막 층의 출력을 바꾸면, 어떤 답변 토큰에 높은 확률을 줄지 조정할 수 있습니다.\n\n**가운데 층을 고정하는 것은 기존 언어 능력의 변화를 제한하고 학습할 파라미터 수를 줄이기 위해서입니다.**\n\n| 전략 | 특징 |\n|---|---|\n| Projector만 학습 | 언어 모델을 보존하지만 적응 범위가 작음 |\n| Projector + 첫·마지막 층 학습 | 입력과 출력 쪽 적응을 허용 |\n| 언어 모델 전체 학습 | 적응 범위가 크지만 비용과 기존 능력 변화 가능성도 커짐 |\n\n다만 **첫 층은 이미지 전담, 마지막 층은 답변 전담이라는 뜻은 아닙니다.** 모든 Transformer 층이 정보를 함께 처리합니다. 위 설명은 이 선택의 설계 의도를 이해하는 방식이며, 첫·마지막 층만 학습하는 것이 항상 최선이라는 보장은 없습니다.",
+      "line": 87
+    },
+    {
+      "file": "minimind-v/eval_vlm.py",
+      "description": "이 코드는 **추론할 이미지와 질문을 각각 모델 입력으로 준비하는 부분**입니다. 이미지는 이미지 텐서로, 질문은 토큰 ID로 변환합니다.\n\n**1. 이미지 파일을 엽니다**\n\n```python\nimage_path = os.path.join(args.image_dir, image_file)\nimage = Image.open(image_path).convert('RGB')\n```\n\n폴더와 파일명을 합쳐 경로를 만들고, 이미지를 RGB 3채널 형식으로 변환합니다.\n\n**2. 이미지를 전처리하고 실행 장치로 옮깁니다**\n\n```python\npixel_values = {\n    k: v.to(args.device)\n    for k, v in MiniMindVLM.image2tensor(image, preprocess).items()\n}\n```\n\n`image2tensor()`는 processor를 사용해 이미지 크기 조정·정규화 등을 수행하고 텐서로 변환합니다. 반환된 딕셔너리의 각 텐서를 GPU 등 `args.device`로 옮깁니다.\n\n```text\n이미지 → 전처리 → {\"pixel_values\": 이미지 텐서} → GPU\n```\n\n**이 단계에서는 이미지 특징을 추출하지 않습니다.** 이미지 인코더는 이후 모델 실행 시 작동합니다.\n\n**3. 질문 안에 이미지가 들어갈 자리를 만듭니다**\n\n```python\nmessages = [{\n    \"role\": \"user\",\n    \"content\": prompt.replace(\n        '<image>',\n        model.config.image_special_token * model.config.image_token_len\n    )\n}]\n```\n\n예를 들어 질문이 다음과 같다면:\n\n```text\n<image> 무엇이 보이나요?\n```\n\n기본 설정에서는 다음처럼 바뀝니다.\n\n```text\n[<|image_pad|> 64개] 무엇이 보이나요?\n```\n\n이 자리표시자들은 이후 모델 내부에서 **실제 이미지 특징을 Projector로 변환한 임베딩으로 교체**됩니다.\n\n즉, 이미지 자체를 문자열로 바꾸는 것이 아니라 **텍스트 시퀀스에 이미지 임베딩이 들어갈 위치를 확보**합니다.\n\n**4. 대화를 채팅 템플릿으로 감쌉니다**\n\n```python\ninputs_text = tokenizer.apply_chat_template(\n    messages,\n    tokenize=False,\n    add_generation_prompt=True,\n    open_thinking=bool(args.open_thinking),\n)\n```\n\n- `tokenize=False`: 토큰 ID가 아닌 문자열을 반환합니다.\n- `add_generation_prompt=True`: assistant가 답변을 시작할 구분자를 추가합니다.\n- `open_thinking`: thinking 사용 여부를 채팅 템플릿에 전달합니다.\n\n개념적으로 다음 문자열이 만들어집니다.\n\n```text\nuser: [이미지 자리표시자들] 무엇이 보이나요?\nassistant: [여기부터 생성]\n```\n\n**5. 문자열을 텍스트 입력 텐서로 변환합니다**\n\n```python\ninputs = tokenizer(\n    inputs_text,\n    return_tensors=\"pt\",\n    truncation=True,\n).to(args.device)\n```\n\n`input_ids`, `attention_mask` 등을 PyTorch 텐서로 만들고 모델이 있는 장치로 옮깁니다. 길이가 tokenizer의 최대 길이를 넘으면 잘라냅니다.\n\n최종적으로 두 입력이 준비됩니다.\n\n| 변수 | 내용 |\n|---|---|\n| `pixel_values` | 전처리된 실제 이미지 |\n| `inputs` | 이미지 자리표시자와 질문을 포함한 텍스트 토큰 |\n\n이후 생성 과정에서 **실제 이미지 특징과 질문 토큰이 합쳐져**, 이미지를 참고한 답변을 만들게 됩니다.",
+      "line": 58
+    }
+  ]
+}

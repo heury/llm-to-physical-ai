@@ -1,0 +1,26 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "pretraining",
+  "steps": [
+    {
+      "file": "minimind/trainer/train_pretrain.py",
+      "description": "예를 들어, 모델 안에 다음 계산이 있다고 해볼게요.\n\n```python\ndef forward(x):\n    a = x + 2\n    b = a * 3\n    return torch.relu(b)  # 음수는 0으로 바꿈\n```\n\n일반 실행에서는 덧셈 → 곱셈 → ReLU를 각각 처리하면서 중간 결과 `a`, `b`를 메모리에 저장하고 다시 읽을 수 있습니다.\n\n`torch.compile`은 이런 연산을 **하나로 묶어 처리하도록 최적화**할 수 있습니다.\n\n```python\n# 개념적으로 하나의 작업으로 묶음\nresult = relu((x + 2) * 3)\n```\n\n계산 결과는 같지만, **GPU에 작업을 지시하는 횟수와 메모리를 오가는 횟수가 줄어 빨라질 수 있습니다.** 실제로 어떤 연산이 묶이는지는 실행 환경에 따라 다릅니다.\n\n이를 모델 전체에 적용하는 코드가 다음입니다.\n\n```python\nmodel = torch.compile(model)\n```\n\n처음에는 최적화 코드를 만드는 시간이 들지만, 학습처럼 같은 계산을 수천 번 반복하면 이후 실행 시간을 줄이는 효과를 기대할 수 있습니다.",
+      "line": 143
+    },
+    {
+      "file": "minimind/trainer/train_pretrain.py",
+      "description": "`with autocast_ctx:`는 **블록 안의 연산에 혼합 정밀도(mixed precision)를 적용하는 구문**입니다.\n\n보통 `float32`보다 메모리를 적게 쓰는 `float16`이나 `bfloat16`으로 계산하되, 수치적으로 민감한 연산은 `float32`를 사용하도록 자동으로 선택합니다.\n\n```python\nwith autocast_ctx:\n    res = model(input_ids, labels=labels)\n    loss = res.loss + res.aux_loss\n    loss = loss / args.accumulation_steps\n```\n\n예를 들어, 모델 내부의 큰 행렬 곱셈을 `bfloat16`으로 처리하면 **GPU 메모리 사용을 줄이고 계산 속도를 높일 수 있습니다.** 모든 연산을 무조건 낮은 정밀도로 바꾸는 것은 아닙니다.\n\n현재 코드에서는 다음처럼 동작합니다.\n\n- **GPU 사용 시:** `args.dtype`에 따라 `bfloat16` 또는 `float16` 혼합 정밀도를 적용합니다.\n- **CPU 사용 시:** `nullcontext()`를 사용하므로 이 구문이 별도의 정밀도 변경을 하지 않습니다.\n\n앞서 본 `torch.compile`이 **계산 실행 방식을 최적화**한다면, `autocast`는 **연산에 사용할 숫자 정밀도를 자동 선택**하는 역할입니다.",
+      "line": 33
+    },
+    {
+      "file": "minimind/trainer/train_pretrain.py",
+      "description": "`scaler.scale(loss)`는 **역전파에서 너무 작은 기울기가 0으로 사라지는 것을 막기 위해 loss를 크게 만드는 연산**입니다. 주로 `float16` 학습에서 필요합니다.\n\n예를 들어 설명하면:\n\n```text\n원래 기울기:       0.00000001 → float16에서는 너무 작아 0이 될 수 있음\nloss를 1,024배:    기울기도 1,024배 커져 표현하기 쉬워짐\n```\n\n현재 코드는 다음처럼 사용합니다.\n\n```python\nscaler.scale(loss).backward()\n```\n\n1. `scale(loss)`가 loss에 배율을 곱합니다.\n2. `.backward()`가 그만큼 커진 기울기를 계산합니다.\n3. 이후 `scaler.step(optimizer)`가 기울기의 배율을 되돌린 뒤 가중치를 업데이트합니다.\n4. `scaler.update()`가 기울기 상태에 따라 다음 배율을 조절합니다.\n\n즉, **학습 효과를 크게 만드는 것이 아니라 작은 기울기를 안전하게 계산하기 위한 장치**입니다. `GradScaler`가 비활성화되어 있으면 `scale(loss)`는 원래 loss를 그대로 반환합니다.",
+      "line": 38
+    },
+    {
+      "file": "minimind/trainer/train_pretrain.py",
+      "description": "이 조건문은 **여러 배치에서 계산한 기울기를 모았다가, 정해진 시점에 모델 가중치를 업데이트하기 위한 조건**입니다.\n\n```python\nif step % args.accumulation_steps == 0 or step == iters:\n```\n\n두 조건 중 하나라도 참이면 실행됩니다.\n\n- `step % args.accumulation_steps == 0`: 정해진 횟수만큼 기울기를 누적했을 때\n- `step == iters`: 현재 에포크의 마지막 배치일 때. 남은 기울기도 업데이트에 반영합니다.\n\n예를 들어 `accumulation_steps = 4`, 전체 배치가 10개라면:\n\n```text\nstep 1~4  → 기울기 누적 → 4에서 업데이트\nstep 5~8  → 기울기 누적 → 8에서 업데이트\nstep 9~10 → 기울기 누적 → 마지막인 10에서 업데이트\n```\n\n이것을 **기울기 누적(gradient accumulation)**이라고 합니다. 한 번에 큰 배치를 GPU에 올리지 않고도 여러 작은 배치의 기울기를 합쳐 학습할 수 있습니다.",
+      "line": 40
+    }
+  ]
+}

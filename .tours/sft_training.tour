@@ -1,0 +1,26 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "sft_training",
+  "steps": [
+    {
+      "file": "minimind/trainer/train_full_sft.py",
+      "description": "pretraining과 이 부분만 차이가 남",
+      "line": 130
+    },
+    {
+      "file": "minimind/trainer/train_lora.py",
+      "description": "모델에 LoRA Layer을 적용",
+      "line": 121
+    },
+    {
+      "file": "minimind/trainer/train_lora.py",
+      "description": "옵티마이저도 LoRA 만 업데이트함\n",
+      "line": 143
+    },
+    {
+      "file": "minimind/trainer/train_lora.py",
+      "description": " LoRA 이외 매개변수를 고정하고 LoRA 매개변수 수집 ",
+      "line": 130
+    }
+  ]
+}

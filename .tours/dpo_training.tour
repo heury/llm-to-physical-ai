@@ -1,0 +1,26 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "dpo_training",
+  "steps": [
+    {
+      "file": "minimind/trainer/train_dpo.py",
+      "description": "log 확률은 마이너를 뺀 cross entropy와 동일함",
+      "line": 25
+    },
+    {
+      "file": "minimind/trainer/train_dpo.py",
+      "description": "ref model은 policy모델과 동일한 모델을 학습이 안되도록 고정시킴",
+      "line": 177
+    },
+    {
+      "file": "minimind/trainer/train_dpo.py",
+      "description": "2로 나누는 것은 chosen과 reject를 분리하기 위함",
+      "line": 33
+    },
+    {
+      "file": "minimind/trainer/train_dpo.py",
+      "description": "ref model은 추론만 하기 때문에 no_grad로",
+      "line": 75
+    }
+  ]
+}
