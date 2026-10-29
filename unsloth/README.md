@@ -19,6 +19,10 @@ VS Code에서는 `.venv/bin/python`을 노트북 커널로 선택합니다.
 잠금 파일은 CUDA 13.0용 패키지를 사용하므로, GPU 실행에는 이를 지원하는 NVIDIA
 드라이버가 필요합니다. CPU만 있는 환경에서 학습 노트북을 실행할 수는 없습니다.
 일반 Decision, Vision, Vision GRPO, Knowledge Distillation 실습은 기본 환경을 사용합니다.
+[`Qwen3_5_(4B)-DPO.ipynb`](Qwen3_5_%284B%29-DPO.ipynb)도 기본 환경을 사용합니다.
+Zephyr DPO 원본을 `unsloth/Qwen3.5-4B`와 Qwen 채팅 템플릿, 현재 TRL API에 맞춘
+사본이며, 형식·구문·채팅 경계만 확인했고 GPU 학습은 아직 실행하지 않았습니다.
+학습 결과와 LoRA adapter는 `../outputs/unsloth/<실행 ID>/`에 저장합니다.
 다음 실습은 추가 패키지를 선택하세요.
 
 | 실습 | 검증한 환경 설치 | 실행 |
